@@ -1,0 +1,17 @@
+{
+  "name": "voxel-server",
+  "version": "0.0.1",
+  "dependencies": {
+    "voxel-engine": "0.0.2",
+    "websocket-stream": "0.0.4",
+    "ws": "0.4.25",
+    "ecstatic": "0.3.0",
+    "hat": "0.0.3",
+    "emit-stream": "0.1.0",
+    "JSONStream": "0.4.3",
+    "three": "0.54.5-dev"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
