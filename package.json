@@ -1,6 +1,7 @@
 {
   "name": "voxel-server",
-  "version": "0.0.1",
+  "version": "0.0.1-1",
+  "subdomain": "voxel",
   "dependencies": {
     "voxel-engine": "0.0.3",
     "websocket-stream": "0.0.4",
@@ -12,5 +13,8 @@
   },
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": "0.8.x"
   }
 }
