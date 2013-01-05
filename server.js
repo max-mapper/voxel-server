@@ -10,11 +10,11 @@ var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
 var clients = {}
 
-function broadcast(id, cmd, pos, val) {
-  console.log(id, 'broadcasting', pos, val)
+function broadcast(id, cmd, arg1, arg2) {
+  console.log(id, 'broadcasting', cmd, arg1 ? arg1 : '', arg2 ? arg2 : '')
   Object.keys(clients).map(function(client) {
     if (client === id) return
-    clients[client].emit(cmd, pos, val)
+    clients[client].emit(cmd, arg1, arg2)
   })
 }
 
@@ -24,17 +24,22 @@ wss.on('connection', function(ws) {
   var id = uuid()
   clients[id] = emitter
   console.log(id, 'joined')
+  broadcast(id, 'join', id)
   stream.once('end', leave)
   stream.once('error', leave)
   function leave() {
     delete clients.id
     console.log(id, 'left')
+    broadcast(id, 'leave', id)
   }
   emitter.on('set', function(pos, val) {
     broadcast(id, 'set', pos, val)
   })
   emitter.on('create', function(pos, val) {
     broadcast(id, 'create', pos, val)
+  })
+  emitter.on('position', function(pos) {
+    broadcast(id, 'position', id, pos)
   })
 
 })
