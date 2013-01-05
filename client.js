@@ -1,23 +1,19 @@
 var websocket = require('websocket-stream')
 var createGame = require('voxel-engine')
-var emitStream = require('emit-stream');
-var JSONStream = require('JSONStream')
-var events = require('events')
+var duplexEmitter = require('duplex-emitter')
 var THREE = require('three')
 
 window.socket = websocket('ws://localhost:8080')
-window.incoming = emitStream(socket.pipe(JSONStream.parse([true])))
-window.outgoing = new events.EventEmitter()
-emitStream(outgoing).pipe(JSONStream.stringify()).pipe(socket)
+window.emitter = duplexEmitter(socket)
 window.game = createGame()
 game.appendTo('#container')
 
-incoming.on('set', function (pos, val) {
+emitter.on('set', function (pos, val) {
   console.log(pos, '=', val)
   game.setBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
 })
 
-incoming.on('create', function (pos, val) {
+emitter.on('create', function (pos, val) {
   console.log(pos, '=', val)
   game.createBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
 })
@@ -25,10 +21,10 @@ incoming.on('create', function (pos, val) {
 game.on('mousedown', function (pos) {
   if (erase) {
     game.setBlock(pos, 0)
-    outgoing.emit('set', JSON.parse(JSON.stringify(pos)), 0)
+    emitter.emit('set', JSON.parse(JSON.stringify(pos)), 0)
   } else {
     game.createBlock(pos, 1)
-    outgoing.emit('create', JSON.parse(JSON.stringify(pos)), 1)
+    emitter.emit('create', JSON.parse(JSON.stringify(pos)), 1)
   }
 })
 

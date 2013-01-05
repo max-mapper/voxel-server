@@ -2,9 +2,7 @@ var http = require('http')
 var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
-var emitStream = require('emit-stream')
-var events = require('events')
-var JSONStream = require('JSONStream')
+var duplexEmitter = require('duplex-emitter')
 var path = require('path')
 var uuid = require('hat')
 
@@ -22,22 +20,20 @@ function broadcast(id, cmd, pos, val) {
 
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
-  var outgoing = new events.EventEmitter()
+  var emitter = duplexEmitter(stream)
   var id = uuid()
-  clients[id] = outgoing
+  clients[id] = emitter
   console.log(id, 'joined')
-  emitStream(outgoing).pipe(JSONStream.stringify()).pipe(stream)
-  var incoming = emitStream(stream.pipe(JSONStream.parse([true])))
-  stream.once('end', cleanup)
-  stream.once('error', cleanup)
-  function cleanup() {
+  stream.once('end', leave)
+  stream.once('error', leave)
+  function leave() {
     delete clients.id
     console.log(id, 'left')
   }
-  incoming.on('set', function(pos, val) {
+  emitter.on('set', function(pos, val) {
     broadcast(id, 'set', pos, val)
   })
-  incoming.on('create', function(pos, val) {
+  emitter.on('create', function(pos, val) {
     broadcast(id, 'create', pos, val)
   })
 

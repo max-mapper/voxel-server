@@ -2,7 +2,7 @@
 
 multiplayer server for [voxel-engine](http://github.com/maxogden/voxel-engine)
 
-** not done: work in progress **
+**not done: work in progress**
 
 ## get it to run:
 
