@@ -10,12 +10,14 @@ game.appendTo('#container')
 
 emitter.on('set', function (pos, val) {
   console.log(pos, '=', val)
-  game.setBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
+  game.setBlock(new THREE.Vector3(pos.x, pos.y, pos.z), val)
+  game.addMarker(pos)
 })
 
 emitter.on('create', function (pos, val) {
   console.log(pos, '=', val)
-  game.createBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
+  game.createBlock(vector, 1)
+  game.addMarker(pos)
 })
 
 game.on('mousedown', function (pos) {
