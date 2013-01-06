@@ -2,12 +2,11 @@ var websocket = require('websocket-stream')
 var createGame = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
 var THREE = require('three')
+var url = require('url')
 
-window.socket = websocket('ws://localhost:8080')
+window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-window.game = createGame({
-  renderCallback: animateHorses
-})
+window.game = createGame({ renderCallback: animateHorses })
 game.appendTo('#container')
 
 var loader = new THREE.JSONLoader( true )
@@ -17,31 +16,42 @@ loader.load( "/horse.js", function( geometry ) {
 
 function animateHorses() {
   Object.keys(horses).map(function(horseID) {
-    var mesh = horses[horseID]
-    if ( mesh ) {
-      var duration = 1000;
-      var keyframes = 15, interpolation = duration / keyframes;
-      var lastKeyframe = 0, currentKeyframe = 0;
-      var time = Date.now() % duration;
-      var keyframe = Math.floor( time / interpolation );
-      if ( keyframe != currentKeyframe ) {
-       mesh.morphTargetInfluences[ lastKeyframe ] = 0;
-       mesh.morphTargetInfluences[ currentKeyframe ] = 1;
-       mesh.morphTargetInfluences[ keyframe ] = 0;
-       lastKeyframe = currentKeyframe;
-       currentKeyframe = keyframe;
-      }
-      mesh.morphTargetInfluences[ keyframe ] = ( time % interpolation ) / interpolation;
-      mesh.morphTargetInfluences[ lastKeyframe ] = 1 - mesh.morphTargetInfluences[ keyframe ];
+    var horse = horses[horseID]
+    if ( horse.mesh ) {
+      horse.tick()
 		}
   })
 }
 
-function newHorse() {
-  mesh = new THREE.Mesh( horseGeometry, new THREE.MeshLambertMaterial( { color: 0x606060, morphTargets: true } ) )
+function Horse() {
+  this.radius = 600
+	this.theta = 0
+	this.duration = 1000
+	this.keyframes = 15
+	this.interpolation = this.duration / this.keyframes
+	this.lastKeyframe = 0
+	this.currentKeyframe = 0
+	this.lastPositionTime = Date.now()
+	
+  var mesh = new THREE.Mesh( horseGeometry, new THREE.MeshLambertMaterial( { color: 0x606060, morphTargets: true } ) )
 	mesh.scale.set( 0.25, 0.25, 0.25 )
 	game.scene.add( mesh )
-	return mesh
+	this.mesh = mesh
+}
+
+Horse.prototype.tick = function() {
+  if (Date.now() - this.lastPositionTime > 150) return
+  var time = Date.now() % this.duration
+  var keyframe = Math.floor( time / this.interpolation )
+  if ( keyframe != this.currentKeyframe ) {
+    this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 0
+    this.mesh.morphTargetInfluences[ this.currentKeyframe ] = 1
+    this.mesh.morphTargetInfluences[ keyframe ] = 0
+    this.lastKeyframe = this.currentKeyframe
+    this.currentKeyframe = keyframe
+  }
+  this.mesh.morphTargetInfluences[ keyframe ] = ( time % this.interpolation ) / this.interpolation
+  this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 1 - this.mesh.morphTargetInfluences[ keyframe ]
 }
 
 window.horses = {}
@@ -53,7 +63,7 @@ setInterval(function() {
 
 emitter.on('join', function(id) {
   console.log('new horse!', id)
-  horses[id] = newHorse()
+  horses[id] = new Horse()
 })
 
 emitter.on('leave', function(id) {
@@ -63,10 +73,11 @@ emitter.on('leave', function(id) {
 
 emitter.on('position', function(id, pos) {
   var horse = horses[id]
-  if (!horse) horses[id] = newHorse()
-  var p = horses[id].position
+  if (!horse) horses[id] = new Horse()
+  var p = horses[id].mesh.position
   if (p.x === pos.x && p.y === pos.y && p.z === pos.z) return
-  horses[id].position.copy(pos)
+  horses[id].lastPositionTime = Date.now()
+  horses[id].mesh.position.copy(pos)
 })
 
 emitter.on('set', function (pos, val) {
@@ -77,7 +88,7 @@ emitter.on('set', function (pos, val) {
 
 emitter.on('create', function (pos, val) {
   console.log(pos, '=', val)
-  game.createBlock(vector, 1)
+  game.createBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
   game.addMarker(pos)
 })
 
@@ -98,6 +109,5 @@ window.addEventListener('keydown', function (ev) {
   }
 })
 
-document.body.addEventListener('click', function() {
-  game.requestPointerLock()
-})
+game.requestPointerLock('#container')
+
