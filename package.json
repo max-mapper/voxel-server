@@ -1,6 +1,6 @@
 {
   "name": "voxel-server",
-  "version": "0.0.1-1",
+  "version": "0.0.1-5",
   "subdomain": "voxel",
   "dependencies": {
     "voxel-engine": "0.0.5",

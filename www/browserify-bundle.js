@@ -1110,12 +1110,13 @@ require.define("/node_modules/voxel-engine/package.json",function(require,module
 });
 
 require.define("/node_modules/voxel-engine/lib/game.js",function(require,module,exports,__dirname,__filename,process,global){var voxel = require('voxel')
-var requestPointerLock = require('./request_pointer_lock')
+var pointerLock = require('pointer-lock')
+var fullscreen = require('fullscreen')
 var Chunker = require('./chunker')
 var Detector = require('./detector')
 var THREE = require('three')
 var Stats = require('./stats')
-var PointerLockControls = require('./pointer_lock_controls')
+var PlayerControls = require('./player-controls.js')
 var requestAnimationFrame = require('raf')
 var inherits = require('inherits')
 var EventEmitter = require('events').EventEmitter
@@ -1154,8 +1155,47 @@ function Game(opts) {
 
 inherits(Game, EventEmitter)
 
-Game.prototype.requestPointerLock = function() {
-  requestPointerLock(this.controls)
+Game.prototype.setupPointerLock = function(element) {
+  var self = this
+  element = element || document.body
+  if (typeof element !== 'object') element = document.querySelector(element)
+  if (!pointerLock.available()) return alert("Your browser doesn't support pointer lock!")
+  var pointer = this.pointer = pointerLock(element)
+  
+  pointer.on('attain', function(movements) {
+    game.controls.enabled = true
+    movements.pipe(self.controls)
+  })
+
+  pointer.on('release', function() {
+    game.controls.enabled = false
+  })
+
+  pointer.on('error', function() {
+    // user denied pointer lock OR it's not available
+    console.error('pointerlock error')
+  })
+
+  pointer.on('needs-fullscreen', function() {
+    // some browsers require you to be in fullscreen mode
+    // for pointer lock.
+    // this lets you catch that case and request it after
+    // you've requested fullscreen.
+    fullscreenRequest = fullscreen(element)
+
+    fullscreenRequest.once('attain', function() {
+      // manually re-request pointer lock
+      pointer.request()
+    })
+
+    // request fullscreen!
+    fullscreenRequest.request()
+  })
+}
+
+Game.prototype.requestPointerLock = function(element) {
+  if (!this.pointer) this.setupPointerLock(element)
+  this.pointer.request()
 }
 
 Game.prototype.moveToPosition = function(position) {
@@ -1238,7 +1278,7 @@ Game.prototype.createCamera = function() {
 }
 
 Game.prototype.createControls = function() {
-  var controls = new PointerLockControls(this.camera)
+  var controls = new PlayerControls(this.camera)
   this.scene.add( controls.yawObject )
   return controls
 }
@@ -1399,23 +1439,21 @@ Game.prototype.voxelAtPosition = function(pos, val) {
 
 Game.prototype.tick = function(dt) {
   var self = this
-  var cam = this.camera.position
-
-  this.controls.update(dt, function (pos, velocity) {
-    var collisions = self.getCollisions(self.controls.yawObject.position)
+  this.controls.tick(dt, function () {
+    var collisions = self.getCollisions(this.yawObject.position)
     
     if (collisions.middle.length || collisions.top.length) {
-      self.controls.yawObject.translateX(-velocity.x)
-      self.controls.yawObject.translateY(-velocity.y)
-      self.controls.yawObject.translateZ(-velocity.z)
-      velocity.x *= -1
-      velocity.z *= -1
-      velocity.y = Math.min(0, velocity.y)
+      this.yawObject.translateX(-this.velocity.x)
+      this.yawObject.translateY(-this.velocity.y)
+      this.yawObject.translateZ(-this.velocity.z)
+      this.velocity.x *= -1
+      this.velocity.z *= -1
+      this.velocity.y = Math.min(0, this.velocity.y)
     }
     
     if (collisions.bottom.length) {
       this.gravityEnabled = false
-      velocity.y = Math.max(0, velocity.y)
+      this.velocity.y = Math.max(0, this.velocity.y)
     }
     else {
       this.gravityEnabled = true
@@ -1424,7 +1462,6 @@ Game.prototype.tick = function(dt) {
   if (this.renderCallback) this.renderCallback.call(this)  
   this.renderer.render(this.scene, this.camera)
   stats.update()
-  this.time = Date.now()
 }
 
 });
@@ -1960,73 +1997,257 @@ if(exports) {
 
 });
 
-require.define("/node_modules/voxel-engine/lib/request_pointer_lock.js",function(require,module,exports,__dirname,__filename,process,global){// http://www.html5rocks.com/en/tutorials/pointerlock/intro/
+require.define("/node_modules/voxel-engine/node_modules/pointer-lock/package.json",function(require,module,exports,__dirname,__filename,process,global){module.exports = {"main":"index.js"}
+});
 
-module.exports = function(controls) {
-  var havePointerLock = 'pointerLockElement' in document || 'mozPointerLockElement' in document || 'webkitPointerLockElement' in document;
+require.define("/node_modules/voxel-engine/node_modules/pointer-lock/index.js",function(require,module,exports,__dirname,__filename,process,global){module.exports = pointer
 
-  var element = document.body;
+pointer.available = available
 
-  var pointerlockchange = function ( event ) {
+var EE = require('events').EventEmitter
+  , Stream = require('stream').Stream
 
-  	if ( document.pointerLockElement === element || document.mozPointerLockElement === element || document.webkitPointerLockElement === element ) {
+function available() {
+  return !!shim(document.body)
+}
 
-  		controls.enabled = true;
+function pointer(el) {
+  var ael = el.addEventListener || el.attachEvent
+    , doc = el.ownerDocument
+    , body = doc.body
+    , rpl = shim(el) 
+    , out = {dx: 0, dy: 0}
+    , ee = new EE
+    , stream = null
+    , lastPageX, lastPageY
+    , needsFullscreen = false
+    , mouseDownMS
 
-  	} else {
+  ael.call(el, 'mousedown', onmousedown, false)
+  ael.call(el, 'mouseup', onmouseup, false)
+  ael.call(body, 'mousemove', onmove, false)
 
-  		controls.enabled = false;
+  var vendors = ['', 'webkit', 'moz', 'ms', 'o']
 
-  	}
-
+  for(var i = 0, len = vendors.length; i < len; ++i) {
+    ael.call(doc, vendors[i]+'pointerlockchange', onpointerlockchange)
+    ael.call(doc, vendors[i]+'pointerlockerror', onpointerlockerror)
   }
 
-  var pointerlockerror = function ( event ) {
+  ee.release = release
+  ee.target = pointerlockelement
+  ee.request = onmousedown
 
-    console.error('pointerlockerror', event)
+  if(!shim) {
+    setTimeout(function() {
+      ee.emit('error', new Error('pointer lock is not supported'))
+    }, 0)
+  }
+  return ee
 
+  function onmousedown(ev) {
+    if(pointerlockelement()) {
+      return
+    }
+    mouseDownMS = +new Date
+    rpl.call(el)
   }
 
-  // Hook pointer lock state change events
-  document.addEventListener( 'pointerlockchange', pointerlockchange, false );
-  document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
-  document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
+  function onmouseup(ev) {
+    if(!needsFullscreen) {
+      return
+    }
 
-  document.addEventListener( 'pointerlockerror', pointerlockerror, false );
-  document.addEventListener( 'mozpointerlockerror', pointerlockerror, false );
-  document.addEventListener( 'webkitpointerlockerror', pointerlockerror, false );
-
-
-  // Ask the browser to lock the pointer
-  element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
-
-  if ( /Firefox/i.test( navigator.userAgent ) ) {
-
-  	var fullscreenchange = function ( event ) {
-
-  		if ( document.fullscreenElement === element || document.mozFullscreenElement === element || document.mozFullScreenElement === element ) {
-
-  			document.removeEventListener( 'fullscreenchange', fullscreenchange );
-  			document.removeEventListener( 'mozfullscreenchange', fullscreenchange );
-
-  			element.requestPointerLock();
-  		}
-
-  	}
-
-  	document.addEventListener( 'fullscreenchange', fullscreenchange, false );
-  	document.addEventListener( 'mozfullscreenchange', fullscreenchange, false );
-
-  	element.requestFullscreen = element.requestFullscreen || element.mozRequestFullscreen || element.mozRequestFullScreen || element.webkitRequestFullscreen;
-
-  	element.requestFullscreen();
-
-  } else {
-
-  	element.requestPointerLock();
-
+    ee.emit('needs-fullscreen')
+    needsFullscreen = false
   }
-  
+
+  function onpointerlockchange(ev) {
+    if(!pointerlockelement()) {
+      if(stream) release()
+      return
+    }
+
+    stream = new Stream
+    stream.readable = true
+    stream.initial = {x: lastPageX, y: lastPageY}
+
+    ee.emit('attain', stream)
+  }
+
+  function onpointerlockerror(ev) {
+    var dt = +(new Date) - mouseDownMS
+    if(dt < 100) {
+      // we errored immediately, we need to do fullscreen first.
+      needsFullscreen = true
+      return
+    }
+
+    if(stream) {
+      stream.emit('error', ev)
+      stream = null
+    }
+  }
+
+  function release() {
+    ee.emit('release')
+
+    if(stream) {
+      stream.emit('end')
+      stream.readable = false
+      stream.emit('close')
+      stream = null
+    }
+
+    var pel = pointerlockelement()
+    if(!pel) {
+      return
+    }
+
+    (doc.exitPointerLock ||
+    doc.mozExitPointerLock ||
+    doc.webkitExitPointerLock ||
+    doc.msExitPointerLock ||
+    doc.oExitPointerLock).call(doc)
+  }
+
+  function onmove(ev) {
+    lastPageX = ev.pageX
+    lastPageY = ev.pageY
+
+    if(!stream) return
+
+    // we're reusing a single object
+    // because I'd like to avoid piling up
+    // a ton of objects for the garbage
+    // collector.
+    out.dx =
+      ev.movementX || ev.webkitMovementX ||
+      ev.mozMovementX || ev.msMovementX ||
+      ev.oMovementX || 0
+
+    out.dy = 
+      ev.movementY || ev.webkitMovementY ||
+      ev.mozMovementY || ev.msMovementY ||
+      ev.oMovementY || 0
+
+    ee.emit('data', out)
+    stream.emit('data', out)
+  }
+
+  function pointerlockelement() {
+    return 0 ||
+      doc.pointerLockElement ||
+      doc.mozPointerLockElement ||
+      doc.webkitPointerLockElement ||
+      doc.msPointerLockElement ||
+      doc.oPointerLockElement ||
+      null
+  }
+}
+
+function shim(el) {
+  return el.requestPointerLock ||
+    el.webkitRequestPointerLock ||
+    el.mozRequestPointerLock ||
+    el.msRequestPointerLock ||
+    el.oRequestPointerLock ||
+    null
+}
+
+});
+
+require.define("/node_modules/voxel-engine/node_modules/fullscreen/package.json",function(require,module,exports,__dirname,__filename,process,global){module.exports = {"main":"index.js"}
+});
+
+require.define("/node_modules/voxel-engine/node_modules/fullscreen/index.js",function(require,module,exports,__dirname,__filename,process,global){module.exports = fullscreen
+fullscreen.available = available
+
+var EE = require('events').EventEmitter
+
+function available() {
+  return !!shim(document.body)
+}
+
+function fullscreen(el) {
+  var ael = el.addEventListener || el.attachEvent
+    , doc = el.ownerDocument
+    , body = doc.body
+    , rfs = shim(el)
+    , ee = new EE
+
+  var vendors = ['', 'webkit', 'moz', 'ms', 'o']
+
+  for(var i = 0, len = vendors.length; i < len; ++i) {
+    ael.call(doc, vendors[i]+'fullscreenchange', onfullscreenchange)
+    ael.call(doc, vendors[i]+'fullscreenerror', onfullscreenerror)
+  }
+
+  ee.release = release
+  ee.request = request
+  ee.target = fullscreenelement
+
+  if(!shim) {
+    setTimeout(function() {
+      ee.emit('error', new Error('fullscreen is not supported'))
+    }, 0)
+  }
+  return ee
+
+  function onfullscreenchange() {
+    if(!fullscreenelement()) {
+      return ee.emit('release')
+    }
+    ee.emit('attain')
+  }
+
+  function onfullscreenerror() {
+    ee.emit('error')
+  }
+
+  function request() {
+    return rfs.call(el)
+  }
+
+  function release() {
+    (el.exitFullscreen ||
+    el.exitFullscreen ||
+    el.webkitExitFullScreen ||
+    el.webkitExitFullscreen ||
+    el.mozExitFullScreen ||
+    el.mozExitFullscreen ||
+    el.msExitFullScreen ||
+    el.msExitFullscreen ||
+    el.oExitFullScreen ||
+    el.oExitFullscreen).call(el)
+  } 
+
+  function fullscreenelement() {
+    return 0 ||
+      doc.fullScreenElement ||
+      doc.fullscreenElement ||
+      doc.webkitFullScreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement ||
+      doc.mozFullscreenElement ||
+      doc.msFullScreenElement ||
+      doc.msFullscreenElement ||
+      doc.oFullScreenElement ||
+      doc.oFullscreenElement ||
+      null
+  }
+}
+
+function shim(el) {
+  return (el.requestFullscreen ||
+    el.webkitRequestFullscreen ||
+    el.webkitRequestFullScreen ||
+    el.mozRequestFullscreen ||
+    el.mozRequestFullScreen ||
+    el.msRequestFullscreen ||
+    el.msRequestFullScreen ||
+    el.oRequestFullscreen ||
+    el.oRequestFullScreen)
 }
 
 });
@@ -38825,163 +39046,204 @@ var Stats = function () {
 module.exports = Stats
 });
 
-require.define("/node_modules/voxel-engine/lib/pointer_lock_controls.js",function(require,module,exports,__dirname,__filename,process,global){var THREE = require('three')
+require.define("/node_modules/voxel-engine/lib/player-controls.js",function(require,module,exports,__dirname,__filename,process,global){var THREE = require('three')
+var inherits = require('inherits')
+var stream = require('stream')
+
+var PI_2 = Math.PI / 2
 
 /**
  * @author mrdoob / http://mrdoob.com/
  * edited by @substack and @maxogden
  */
 
-module.exports = function ( camera ) {
-  var speed = this.speed = {
-    jump: 5,
-    move: 0.12,
-    fall: 0.3
+module.exports = function(camera, opts) {
+  return new PlayerControls(camera, opts)
+}
+
+module.exports.PlayerControls = PlayerControls
+
+function PlayerControls(camera, opts) {
+  if (!(this instanceof PlayerControls)) return new PlayerControls(camera, opts)
+  var self = this
+  if (!opts) opts = {}
+  
+  this.readable = true
+  this.writable = true
+  this.enabled = false
+  
+  this.speed = {
+    jump: opts.jump || 5,
+    move: opts.move || 0.12,
+    fall: opts.fall || 0.3
+  }
+
+  this.pitchObject = new THREE.Object3D()
+  this.pitchObject.add( camera )
+
+  this.yawObject = new THREE.Object3D()
+  this.yawObject.position.y = 10
+  this.yawObject.add( this.pitchObject )
+
+  this.moveForward = false
+  this.moveBackward = false
+  this.moveLeft = false
+  this.moveRight = false
+
+  this.isOnObject = false
+  this.canJump = false
+
+  this.velocity = new THREE.Vector3()
+  
+  this.on('jump', function() {
+    if ( self.canJump === true ) self.velocity.y += self.speed.jump
+    self.canJump = false
+  })
+  
+  this.bindWASD()
+}
+
+inherits(PlayerControls, stream.Stream)
+
+PlayerControls.prototype.write = function(data) {
+  if (this.enabled === false) return
+  this.applyRotationDeltas(data)
+}
+
+PlayerControls.prototype.end = function() {
+  this.emit('end')
+}
+
+PlayerControls.prototype.applyRotationDeltas = function(deltas) {
+  this.yawObject.rotation.y -= deltas.dx * 0.002
+  this.pitchObject.rotation.x -= deltas.dy * 0.002
+  this.pitchObject.rotation.x = Math.max(-PI_2, Math.min(PI_2, this.pitchObject.rotation.x))
+}
+
+PlayerControls.prototype.isOnObject = function ( booleanValue ) {
+  this.isOnObject = booleanValue
+  this.canJump = booleanValue
+}
+
+PlayerControls.prototype.tick = function (delta, cb) {
+  if (this.enabled === false) return
+
+  delta *= 0.1
+
+  this.velocity.x += (-this.velocity.x) * 0.08 * delta
+  this.velocity.z += (-this.velocity.z) * 0.08 * delta
+
+  if (this.gravityEnabled) this.velocity.y -= this.speed.fall * delta
+
+  if (this.moveForward) this.velocity.z -= this.speed.move * delta
+  if (this.moveBackward) this.velocity.z += this.speed.move * delta
+
+  if (this.moveLeft) this.velocity.x -= this.speed.move * delta
+  if (this.moveRight) this.velocity.x += this.speed.move * delta
+
+  if ( this.isOnObject === true ) this.velocity.y = Math.max(0, this.velocity.y)
+
+  if (cb) cb.call(this)
+  
+  this.yawObject.translateX( this.velocity.x )
+  this.yawObject.translateY( this.velocity.y )
+  this.yawObject.translateZ( this.velocity.z )
+
+  if (this.velocity.y === 0) this.canJump = true
+}
+
+
+PlayerControls.prototype.bindWASD = function () {
+  var self = this
+  var onKeyDown = function ( event ) {
+    switch ( event.keyCode ) {
+      case 38: // up
+      case 87: // w
+        self.moveForward = true;
+        break;
+
+      case 37: // left
+      case 65: // a
+        self.moveLeft = true; break;
+
+      case 40: // down
+      case 83: // s
+        self.moveBackward = true;
+        break;
+
+      case 39: // right
+      case 68: // d
+        self.moveRight = true;
+        break;
+
+      case 32: // space
+        self.emit('jump')
+        break;
+    }
+  }
+
+  var onKeyUp = function ( event ) {
+    switch( event.keyCode ) {
+      case 38: // up
+      case 87: // w
+        self.moveForward = false;
+        break;
+
+      case 37: // left
+      case 65: // a
+        self.moveLeft = false;
+        break;
+
+      case 40: // down
+      case 83: // a
+        self.moveBackward = false;
+        break;
+
+      case 39: // right
+      case 68: // d
+        self.moveRight = false;
+        break;
+    }
   };
 
-	var scope = this;
-	var pitchObject = this.pitchObject = new THREE.Object3D();
-	pitchObject.add( camera );
+  document.addEventListener( 'keydown', onKeyDown, false )
+  document.addEventListener( 'keyup', onKeyUp, false )
+}
 
-	var yawObject = this.yawObject = new THREE.Object3D();
-	yawObject.position.y = 10;
-	yawObject.add( pitchObject );
+});
 
-	var moveForward = false;
-	var moveBackward = false;
-	var moveLeft = false;
-	var moveRight = false;
+require.define("/node_modules/voxel-engine/node_modules/inherits/package.json",function(require,module,exports,__dirname,__filename,process,global){module.exports = {"main":"./inherits.js"}
+});
 
-	var isOnObject = false;
-	scope.canJump = false;
+require.define("/node_modules/voxel-engine/node_modules/inherits/inherits.js",function(require,module,exports,__dirname,__filename,process,global){module.exports = inherits
 
-	var velocity = new THREE.Vector3();
+function inherits (c, p, proto) {
+  proto = proto || {}
+  var e = {}
+  ;[c.prototype, proto].forEach(function (s) {
+    Object.getOwnPropertyNames(s).forEach(function (k) {
+      e[k] = Object.getOwnPropertyDescriptor(s, k)
+    })
+  })
+  c.prototype = Object.create(p.prototype, e)
+  c.super = p
+}
 
-	var PI_2 = Math.PI / 2;
-
-	var onMouseMove = function ( event ) {
-
-		if ( scope.enabled === false ) return;
-
-		var movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
-		var movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
-
-		yawObject.rotation.y -= movementX * 0.002;
-		pitchObject.rotation.x -= movementY * 0.002;
-
-		pitchObject.rotation.x = Math.max( - PI_2, Math.min( PI_2, pitchObject.rotation.x ) );
-
-	};
-
-	var onKeyDown = function ( event ) {
-
-		switch ( event.keyCode ) {
-
-			case 38: // up
-			case 87: // w
-				moveForward = true;
-				break;
-
-			case 37: // left
-			case 65: // a
-				moveLeft = true; break;
-
-			case 40: // down
-			case 83: // s
-				moveBackward = true;
-				break;
-
-			case 39: // right
-			case 68: // d
-				moveRight = true;
-				break;
-
-			case 32: // space
-				if ( scope.canJump === true ) velocity.y += speed.jump;
-				scope.canJump = false;
-				break;
-
-		}
-
-	};
-
-	var onKeyUp = function ( event ) {
-
-		switch( event.keyCode ) {
-
-			case 38: // up
-			case 87: // w
-				moveForward = false;
-				break;
-
-			case 37: // left
-			case 65: // a
-				moveLeft = false;
-				break;
-
-			case 40: // down
-			case 83: // a
-				moveBackward = false;
-				break;
-
-			case 39: // right
-			case 68: // d
-				moveRight = false;
-				break;
-
-		}
-
-	};
-
-	document.addEventListener( 'mousemove', onMouseMove, false );
-	document.addEventListener( 'keydown', onKeyDown, false );
-	document.addEventListener( 'keyup', onKeyUp, false );
-
-	this.enabled = false;
-
-	this.isOnObject = function ( boolean ) {
-
-		isOnObject = boolean;
-		scope.canJump = boolean;
-
-	};
-
-	this.update = function (delta, cb) {
-
-		if ( scope.enabled === false ) return;
-
-		delta *= 0.1;
-
-		velocity.x += ( - velocity.x ) * 0.08 * delta;
-		velocity.z += ( - velocity.z ) * 0.08 * delta;
-
-		if (this.gravityEnabled) velocity.y -= speed.fall * delta;
-
-		if ( moveForward ) velocity.z -= speed.move * delta;
-		if ( moveBackward ) velocity.z += speed.move * delta;
-
-		if ( moveLeft ) velocity.x -= speed.move * delta;
-		if ( moveRight ) velocity.x += speed.move * delta;
-
-		if ( isOnObject === true ) {
-
-			velocity.y = Math.max( 0, velocity.y );
-
-		}
-
-    if (cb) cb.call(this, yawObject.position, velocity);
-    
-		yawObject.translateX( velocity.x );
-		yawObject.translateY( velocity.y ); 
-		yawObject.translateZ( velocity.z );
-
-    if (velocity.y === 0) {
-        scope.canJump = true;
-    }
-
-	};
-
-};
+//function Child () {
+//  Child.super.call(this)
+//  console.error([this
+//                ,this.constructor
+//                ,this.constructor === Child
+//                ,this.constructor.super === Parent
+//                ,Object.getPrototypeOf(this) === Child.prototype
+//                ,Object.getPrototypeOf(Object.getPrototypeOf(this))
+//                 === Parent.prototype
+//                ,this instanceof Child
+//                ,this instanceof Parent])
+//}
+//function Parent () {}
+//inherits(Child, Parent)
+//new Child
 
 });
 
@@ -39033,41 +39295,6 @@ function raf(el) {
 
 raf.polyfill = _raf
 raf.now = function() { return Date.now() }
-
-});
-
-require.define("/node_modules/voxel-engine/node_modules/inherits/package.json",function(require,module,exports,__dirname,__filename,process,global){module.exports = {"main":"./inherits.js"}
-});
-
-require.define("/node_modules/voxel-engine/node_modules/inherits/inherits.js",function(require,module,exports,__dirname,__filename,process,global){module.exports = inherits
-
-function inherits (c, p, proto) {
-  proto = proto || {}
-  var e = {}
-  ;[c.prototype, proto].forEach(function (s) {
-    Object.getOwnPropertyNames(s).forEach(function (k) {
-      e[k] = Object.getOwnPropertyDescriptor(s, k)
-    })
-  })
-  c.prototype = Object.create(p.prototype, e)
-  c.super = p
-}
-
-//function Child () {
-//  Child.super.call(this)
-//  console.error([this
-//                ,this.constructor
-//                ,this.constructor === Child
-//                ,this.constructor.super === Parent
-//                ,Object.getPrototypeOf(this) === Child.prototype
-//                ,Object.getPrototypeOf(Object.getPrototypeOf(this))
-//                 === Parent.prototype
-//                ,this instanceof Child
-//                ,this instanceof Parent])
-//}
-//function Parent () {}
-//inherits(Child, Parent)
-//new Child
 
 });
 
@@ -39942,16 +40169,875 @@ function through (write, end) {
 
 });
 
+require.define("url",function(require,module,exports,__dirname,__filename,process,global){var punycode = { encode : function (s) { return s } };
+
+exports.parse = urlParse;
+exports.resolve = urlResolve;
+exports.resolveObject = urlResolveObject;
+exports.format = urlFormat;
+
+function arrayIndexOf(array, subject) {
+    for (var i = 0, j = array.length; i < j; i++) {
+        if(array[i] == subject) return i;
+    }
+    return -1;
+}
+
+var objectKeys = Object.keys || function objectKeys(object) {
+    if (object !== Object(object)) throw new TypeError('Invalid object');
+    var keys = [];
+    for (var key in object) if (object.hasOwnProperty(key)) keys[keys.length] = key;
+    return keys;
+}
+
+// Reference: RFC 3986, RFC 1808, RFC 2396
+
+// define these here so at least they only have to be
+// compiled once on the first module load.
+var protocolPattern = /^([a-z0-9.+-]+:)/i,
+    portPattern = /:[0-9]+$/,
+    // RFC 2396: characters reserved for delimiting URLs.
+    delims = ['<', '>', '"', '`', ' ', '\r', '\n', '\t'],
+    // RFC 2396: characters not allowed for various reasons.
+    unwise = ['{', '}', '|', '\\', '^', '~', '[', ']', '`'].concat(delims),
+    // Allowed by RFCs, but cause of XSS attacks.  Always escape these.
+    autoEscape = ['\''],
+    // Characters that are never ever allowed in a hostname.
+    // Note that any invalid chars are also handled, but these
+    // are the ones that are *expected* to be seen, so we fast-path
+    // them.
+    nonHostChars = ['%', '/', '?', ';', '#']
+      .concat(unwise).concat(autoEscape),
+    nonAuthChars = ['/', '@', '?', '#'].concat(delims),
+    hostnameMaxLen = 255,
+    hostnamePartPattern = /^[a-zA-Z0-9][a-z0-9A-Z_-]{0,62}$/,
+    hostnamePartStart = /^([a-zA-Z0-9][a-z0-9A-Z_-]{0,62})(.*)$/,
+    // protocols that can allow "unsafe" and "unwise" chars.
+    unsafeProtocol = {
+      'javascript': true,
+      'javascript:': true
+    },
+    // protocols that never have a hostname.
+    hostlessProtocol = {
+      'javascript': true,
+      'javascript:': true
+    },
+    // protocols that always have a path component.
+    pathedProtocol = {
+      'http': true,
+      'https': true,
+      'ftp': true,
+      'gopher': true,
+      'file': true,
+      'http:': true,
+      'ftp:': true,
+      'gopher:': true,
+      'file:': true
+    },
+    // protocols that always contain a // bit.
+    slashedProtocol = {
+      'http': true,
+      'https': true,
+      'ftp': true,
+      'gopher': true,
+      'file': true,
+      'http:': true,
+      'https:': true,
+      'ftp:': true,
+      'gopher:': true,
+      'file:': true
+    },
+    querystring = require('querystring');
+
+function urlParse(url, parseQueryString, slashesDenoteHost) {
+  if (url && typeof(url) === 'object' && url.href) return url;
+
+  if (typeof url !== 'string') {
+    throw new TypeError("Parameter 'url' must be a string, not " + typeof url);
+  }
+
+  var out = {},
+      rest = url;
+
+  // cut off any delimiters.
+  // This is to support parse stuff like "<http://foo.com>"
+  for (var i = 0, l = rest.length; i < l; i++) {
+    if (arrayIndexOf(delims, rest.charAt(i)) === -1) break;
+  }
+  if (i !== 0) rest = rest.substr(i);
+
+
+  var proto = protocolPattern.exec(rest);
+  if (proto) {
+    proto = proto[0];
+    var lowerProto = proto.toLowerCase();
+    out.protocol = lowerProto;
+    rest = rest.substr(proto.length);
+  }
+
+  // figure out if it's got a host
+  // user@server is *always* interpreted as a hostname, and url
+  // resolution will treat //foo/bar as host=foo,path=bar because that's
+  // how the browser resolves relative URLs.
+  if (slashesDenoteHost || proto || rest.match(/^\/\/[^@\/]+@[^@\/]+/)) {
+    var slashes = rest.substr(0, 2) === '//';
+    if (slashes && !(proto && hostlessProtocol[proto])) {
+      rest = rest.substr(2);
+      out.slashes = true;
+    }
+  }
+
+  if (!hostlessProtocol[proto] &&
+      (slashes || (proto && !slashedProtocol[proto]))) {
+    // there's a hostname.
+    // the first instance of /, ?, ;, or # ends the host.
+    // don't enforce full RFC correctness, just be unstupid about it.
+
+    // If there is an @ in the hostname, then non-host chars *are* allowed
+    // to the left of the first @ sign, unless some non-auth character
+    // comes *before* the @-sign.
+    // URLs are obnoxious.
+    var atSign = arrayIndexOf(rest, '@');
+    if (atSign !== -1) {
+      // there *may be* an auth
+      var hasAuth = true;
+      for (var i = 0, l = nonAuthChars.length; i < l; i++) {
+        var index = arrayIndexOf(rest, nonAuthChars[i]);
+        if (index !== -1 && index < atSign) {
+          // not a valid auth.  Something like http://foo.com/bar@baz/
+          hasAuth = false;
+          break;
+        }
+      }
+      if (hasAuth) {
+        // pluck off the auth portion.
+        out.auth = rest.substr(0, atSign);
+        rest = rest.substr(atSign + 1);
+      }
+    }
+
+    var firstNonHost = -1;
+    for (var i = 0, l = nonHostChars.length; i < l; i++) {
+      var index = arrayIndexOf(rest, nonHostChars[i]);
+      if (index !== -1 &&
+          (firstNonHost < 0 || index < firstNonHost)) firstNonHost = index;
+    }
+
+    if (firstNonHost !== -1) {
+      out.host = rest.substr(0, firstNonHost);
+      rest = rest.substr(firstNonHost);
+    } else {
+      out.host = rest;
+      rest = '';
+    }
+
+    // pull out port.
+    var p = parseHost(out.host);
+    var keys = objectKeys(p);
+    for (var i = 0, l = keys.length; i < l; i++) {
+      var key = keys[i];
+      out[key] = p[key];
+    }
+
+    // we've indicated that there is a hostname,
+    // so even if it's empty, it has to be present.
+    out.hostname = out.hostname || '';
+
+    // validate a little.
+    if (out.hostname.length > hostnameMaxLen) {
+      out.hostname = '';
+    } else {
+      var hostparts = out.hostname.split(/\./);
+      for (var i = 0, l = hostparts.length; i < l; i++) {
+        var part = hostparts[i];
+        if (!part) continue;
+        if (!part.match(hostnamePartPattern)) {
+          var newpart = '';
+          for (var j = 0, k = part.length; j < k; j++) {
+            if (part.charCodeAt(j) > 127) {
+              // we replace non-ASCII char with a temporary placeholder
+              // we need this to make sure size of hostname is not
+              // broken by replacing non-ASCII by nothing
+              newpart += 'x';
+            } else {
+              newpart += part[j];
+            }
+          }
+          // we test again with ASCII char only
+          if (!newpart.match(hostnamePartPattern)) {
+            var validParts = hostparts.slice(0, i);
+            var notHost = hostparts.slice(i + 1);
+            var bit = part.match(hostnamePartStart);
+            if (bit) {
+              validParts.push(bit[1]);
+              notHost.unshift(bit[2]);
+            }
+            if (notHost.length) {
+              rest = '/' + notHost.join('.') + rest;
+            }
+            out.hostname = validParts.join('.');
+            break;
+          }
+        }
+      }
+    }
+
+    // hostnames are always lower case.
+    out.hostname = out.hostname.toLowerCase();
+
+    // IDNA Support: Returns a puny coded representation of "domain".
+    // It only converts the part of the domain name that
+    // has non ASCII characters. I.e. it dosent matter if
+    // you call it with a domain that already is in ASCII.
+    var domainArray = out.hostname.split('.');
+    var newOut = [];
+    for (var i = 0; i < domainArray.length; ++i) {
+      var s = domainArray[i];
+      newOut.push(s.match(/[^A-Za-z0-9_-]/) ?
+          'xn--' + punycode.encode(s) : s);
+    }
+    out.hostname = newOut.join('.');
+
+    out.host = (out.hostname || '') +
+        ((out.port) ? ':' + out.port : '');
+    out.href += out.host;
+  }
+
+  // now rest is set to the post-host stuff.
+  // chop off any delim chars.
+  if (!unsafeProtocol[lowerProto]) {
+
+    // First, make 100% sure that any "autoEscape" chars get
+    // escaped, even if encodeURIComponent doesn't think they
+    // need to be.
+    for (var i = 0, l = autoEscape.length; i < l; i++) {
+      var ae = autoEscape[i];
+      var esc = encodeURIComponent(ae);
+      if (esc === ae) {
+        esc = escape(ae);
+      }
+      rest = rest.split(ae).join(esc);
+    }
+
+    // Now make sure that delims never appear in a url.
+    var chop = rest.length;
+    for (var i = 0, l = delims.length; i < l; i++) {
+      var c = arrayIndexOf(rest, delims[i]);
+      if (c !== -1) {
+        chop = Math.min(c, chop);
+      }
+    }
+    rest = rest.substr(0, chop);
+  }
+
+
+  // chop off from the tail first.
+  var hash = arrayIndexOf(rest, '#');
+  if (hash !== -1) {
+    // got a fragment string.
+    out.hash = rest.substr(hash);
+    rest = rest.slice(0, hash);
+  }
+  var qm = arrayIndexOf(rest, '?');
+  if (qm !== -1) {
+    out.search = rest.substr(qm);
+    out.query = rest.substr(qm + 1);
+    if (parseQueryString) {
+      out.query = querystring.parse(out.query);
+    }
+    rest = rest.slice(0, qm);
+  } else if (parseQueryString) {
+    // no query string, but parseQueryString still requested
+    out.search = '';
+    out.query = {};
+  }
+  if (rest) out.pathname = rest;
+  if (slashedProtocol[proto] &&
+      out.hostname && !out.pathname) {
+    out.pathname = '/';
+  }
+
+  //to support http.request
+  if (out.pathname || out.search) {
+    out.path = (out.pathname ? out.pathname : '') +
+               (out.search ? out.search : '');
+  }
+
+  // finally, reconstruct the href based on what has been validated.
+  out.href = urlFormat(out);
+  return out;
+}
+
+// format a parsed object into a url string
+function urlFormat(obj) {
+  // ensure it's an object, and not a string url.
+  // If it's an obj, this is a no-op.
+  // this way, you can call url_format() on strings
+  // to clean up potentially wonky urls.
+  if (typeof(obj) === 'string') obj = urlParse(obj);
+
+  var auth = obj.auth || '';
+  if (auth) {
+    auth = auth.split('@').join('%40');
+    for (var i = 0, l = nonAuthChars.length; i < l; i++) {
+      var nAC = nonAuthChars[i];
+      auth = auth.split(nAC).join(encodeURIComponent(nAC));
+    }
+    auth += '@';
+  }
+
+  var protocol = obj.protocol || '',
+      host = (obj.host !== undefined) ? auth + obj.host :
+          obj.hostname !== undefined ? (
+              auth + obj.hostname +
+              (obj.port ? ':' + obj.port : '')
+          ) :
+          false,
+      pathname = obj.pathname || '',
+      query = obj.query &&
+              ((typeof obj.query === 'object' &&
+                objectKeys(obj.query).length) ?
+                 querystring.stringify(obj.query) :
+                 '') || '',
+      search = obj.search || (query && ('?' + query)) || '',
+      hash = obj.hash || '';
+
+  if (protocol && protocol.substr(-1) !== ':') protocol += ':';
+
+  // only the slashedProtocols get the //.  Not mailto:, xmpp:, etc.
+  // unless they had them to begin with.
+  if (obj.slashes ||
+      (!protocol || slashedProtocol[protocol]) && host !== false) {
+    host = '//' + (host || '');
+    if (pathname && pathname.charAt(0) !== '/') pathname = '/' + pathname;
+  } else if (!host) {
+    host = '';
+  }
+
+  if (hash && hash.charAt(0) !== '#') hash = '#' + hash;
+  if (search && search.charAt(0) !== '?') search = '?' + search;
+
+  return protocol + host + pathname + search + hash;
+}
+
+function urlResolve(source, relative) {
+  return urlFormat(urlResolveObject(source, relative));
+}
+
+function urlResolveObject(source, relative) {
+  if (!source) return relative;
+
+  source = urlParse(urlFormat(source), false, true);
+  relative = urlParse(urlFormat(relative), false, true);
+
+  // hash is always overridden, no matter what.
+  source.hash = relative.hash;
+
+  if (relative.href === '') {
+    source.href = urlFormat(source);
+    return source;
+  }
+
+  // hrefs like //foo/bar always cut to the protocol.
+  if (relative.slashes && !relative.protocol) {
+    relative.protocol = source.protocol;
+    //urlParse appends trailing / to urls like http://www.example.com
+    if (slashedProtocol[relative.protocol] &&
+        relative.hostname && !relative.pathname) {
+      relative.path = relative.pathname = '/';
+    }
+    relative.href = urlFormat(relative);
+    return relative;
+  }
+
+  if (relative.protocol && relative.protocol !== source.protocol) {
+    // if it's a known url protocol, then changing
+    // the protocol does weird things
+    // first, if it's not file:, then we MUST have a host,
+    // and if there was a path
+    // to begin with, then we MUST have a path.
+    // if it is file:, then the host is dropped,
+    // because that's known to be hostless.
+    // anything else is assumed to be absolute.
+    if (!slashedProtocol[relative.protocol]) {
+      relative.href = urlFormat(relative);
+      return relative;
+    }
+    source.protocol = relative.protocol;
+    if (!relative.host && !hostlessProtocol[relative.protocol]) {
+      var relPath = (relative.pathname || '').split('/');
+      while (relPath.length && !(relative.host = relPath.shift()));
+      if (!relative.host) relative.host = '';
+      if (!relative.hostname) relative.hostname = '';
+      if (relPath[0] !== '') relPath.unshift('');
+      if (relPath.length < 2) relPath.unshift('');
+      relative.pathname = relPath.join('/');
+    }
+    source.pathname = relative.pathname;
+    source.search = relative.search;
+    source.query = relative.query;
+    source.host = relative.host || '';
+    source.auth = relative.auth;
+    source.hostname = relative.hostname || relative.host;
+    source.port = relative.port;
+    //to support http.request
+    if (source.pathname !== undefined || source.search !== undefined) {
+      source.path = (source.pathname ? source.pathname : '') +
+                    (source.search ? source.search : '');
+    }
+    source.slashes = source.slashes || relative.slashes;
+    source.href = urlFormat(source);
+    return source;
+  }
+
+  var isSourceAbs = (source.pathname && source.pathname.charAt(0) === '/'),
+      isRelAbs = (
+          relative.host !== undefined ||
+          relative.pathname && relative.pathname.charAt(0) === '/'
+      ),
+      mustEndAbs = (isRelAbs || isSourceAbs ||
+                    (source.host && relative.pathname)),
+      removeAllDots = mustEndAbs,
+      srcPath = source.pathname && source.pathname.split('/') || [],
+      relPath = relative.pathname && relative.pathname.split('/') || [],
+      psychotic = source.protocol &&
+          !slashedProtocol[source.protocol];
+
+  // if the url is a non-slashed url, then relative
+  // links like ../.. should be able
+  // to crawl up to the hostname, as well.  This is strange.
+  // source.protocol has already been set by now.
+  // Later on, put the first path part into the host field.
+  if (psychotic) {
+
+    delete source.hostname;
+    delete source.port;
+    if (source.host) {
+      if (srcPath[0] === '') srcPath[0] = source.host;
+      else srcPath.unshift(source.host);
+    }
+    delete source.host;
+    if (relative.protocol) {
+      delete relative.hostname;
+      delete relative.port;
+      if (relative.host) {
+        if (relPath[0] === '') relPath[0] = relative.host;
+        else relPath.unshift(relative.host);
+      }
+      delete relative.host;
+    }
+    mustEndAbs = mustEndAbs && (relPath[0] === '' || srcPath[0] === '');
+  }
+
+  if (isRelAbs) {
+    // it's absolute.
+    source.host = (relative.host || relative.host === '') ?
+                      relative.host : source.host;
+    source.hostname = (relative.hostname || relative.hostname === '') ?
+                      relative.hostname : source.hostname;
+    source.search = relative.search;
+    source.query = relative.query;
+    srcPath = relPath;
+    // fall through to the dot-handling below.
+  } else if (relPath.length) {
+    // it's relative
+    // throw away the existing file, and take the new path instead.
+    if (!srcPath) srcPath = [];
+    srcPath.pop();
+    srcPath = srcPath.concat(relPath);
+    source.search = relative.search;
+    source.query = relative.query;
+  } else if ('search' in relative) {
+    // just pull out the search.
+    // like href='?foo'.
+    // Put this after the other two cases because it simplifies the booleans
+    if (psychotic) {
+      source.hostname = source.host = srcPath.shift();
+      //occationaly the auth can get stuck only in host
+      //this especialy happens in cases like
+      //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
+      var authInHost = source.host && arrayIndexOf(source.host, '@') > 0 ?
+                       source.host.split('@') : false;
+      if (authInHost) {
+        source.auth = authInHost.shift();
+        source.host = source.hostname = authInHost.shift();
+      }
+    }
+    source.search = relative.search;
+    source.query = relative.query;
+    //to support http.request
+    if (source.pathname !== undefined || source.search !== undefined) {
+      source.path = (source.pathname ? source.pathname : '') +
+                    (source.search ? source.search : '');
+    }
+    source.href = urlFormat(source);
+    return source;
+  }
+  if (!srcPath.length) {
+    // no path at all.  easy.
+    // we've already handled the other stuff above.
+    delete source.pathname;
+    //to support http.request
+    if (!source.search) {
+      source.path = '/' + source.search;
+    } else {
+      delete source.path;
+    }
+    source.href = urlFormat(source);
+    return source;
+  }
+  // if a url ENDs in . or .., then it must get a trailing slash.
+  // however, if it ends in anything else non-slashy,
+  // then it must NOT get a trailing slash.
+  var last = srcPath.slice(-1)[0];
+  var hasTrailingSlash = (
+      (source.host || relative.host) && (last === '.' || last === '..') ||
+      last === '');
+
+  // strip single dots, resolve double dots to parent dir
+  // if the path tries to go above the root, `up` ends up > 0
+  var up = 0;
+  for (var i = srcPath.length; i >= 0; i--) {
+    last = srcPath[i];
+    if (last == '.') {
+      srcPath.splice(i, 1);
+    } else if (last === '..') {
+      srcPath.splice(i, 1);
+      up++;
+    } else if (up) {
+      srcPath.splice(i, 1);
+      up--;
+    }
+  }
+
+  // if the path is allowed to go above the root, restore leading ..s
+  if (!mustEndAbs && !removeAllDots) {
+    for (; up--; up) {
+      srcPath.unshift('..');
+    }
+  }
+
+  if (mustEndAbs && srcPath[0] !== '' &&
+      (!srcPath[0] || srcPath[0].charAt(0) !== '/')) {
+    srcPath.unshift('');
+  }
+
+  if (hasTrailingSlash && (srcPath.join('/').substr(-1) !== '/')) {
+    srcPath.push('');
+  }
+
+  var isAbsolute = srcPath[0] === '' ||
+      (srcPath[0] && srcPath[0].charAt(0) === '/');
+
+  // put the host back
+  if (psychotic) {
+    source.hostname = source.host = isAbsolute ? '' :
+                                    srcPath.length ? srcPath.shift() : '';
+    //occationaly the auth can get stuck only in host
+    //this especialy happens in cases like
+    //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
+    var authInHost = source.host && arrayIndexOf(source.host, '@') > 0 ?
+                     source.host.split('@') : false;
+    if (authInHost) {
+      source.auth = authInHost.shift();
+      source.host = source.hostname = authInHost.shift();
+    }
+  }
+
+  mustEndAbs = mustEndAbs || (source.host && srcPath.length);
+
+  if (mustEndAbs && !isAbsolute) {
+    srcPath.unshift('');
+  }
+
+  source.pathname = srcPath.join('/');
+  //to support request.http
+  if (source.pathname !== undefined || source.search !== undefined) {
+    source.path = (source.pathname ? source.pathname : '') +
+                  (source.search ? source.search : '');
+  }
+  source.auth = relative.auth || source.auth;
+  source.slashes = source.slashes || relative.slashes;
+  source.href = urlFormat(source);
+  return source;
+}
+
+function parseHost(host) {
+  var out = {};
+  var port = portPattern.exec(host);
+  if (port) {
+    port = port[0];
+    out.port = port.substr(1);
+    host = host.substr(0, host.length - port.length);
+  }
+  if (host) out.hostname = host;
+  return out;
+}
+
+});
+
+require.define("querystring",function(require,module,exports,__dirname,__filename,process,global){var isArray = typeof Array.isArray === 'function'
+    ? Array.isArray
+    : function (xs) {
+        return Object.prototype.toString.call(xs) === '[object Array]'
+    };
+
+var objectKeys = Object.keys || function objectKeys(object) {
+    if (object !== Object(object)) throw new TypeError('Invalid object');
+    var keys = [];
+    for (var key in object) if (object.hasOwnProperty(key)) keys[keys.length] = key;
+    return keys;
+}
+
+
+/*!
+ * querystring
+ * Copyright(c) 2010 TJ Holowaychuk <tj@vision-media.ca>
+ * MIT Licensed
+ */
+
+/**
+ * Library version.
+ */
+
+exports.version = '0.3.1';
+
+/**
+ * Object#toString() ref for stringify().
+ */
+
+var toString = Object.prototype.toString;
+
+/**
+ * Cache non-integer test regexp.
+ */
+
+var notint = /[^0-9]/;
+
+/**
+ * Parse the given query `str`, returning an object.
+ *
+ * @param {String} str
+ * @return {Object}
+ * @api public
+ */
+
+exports.parse = function(str){
+  if (null == str || '' == str) return {};
+
+  function promote(parent, key) {
+    if (parent[key].length == 0) return parent[key] = {};
+    var t = {};
+    for (var i in parent[key]) t[i] = parent[key][i];
+    parent[key] = t;
+    return t;
+  }
+
+  return String(str)
+    .split('&')
+    .reduce(function(ret, pair){
+      try{ 
+        pair = decodeURIComponent(pair.replace(/\+/g, ' '));
+      } catch(e) {
+        // ignore
+      }
+
+      var eql = pair.indexOf('=')
+        , brace = lastBraceInKey(pair)
+        , key = pair.substr(0, brace || eql)
+        , val = pair.substr(brace || eql, pair.length)
+        , val = val.substr(val.indexOf('=') + 1, val.length)
+        , parent = ret;
+
+      // ?foo
+      if ('' == key) key = pair, val = '';
+
+      // nested
+      if (~key.indexOf(']')) {
+        var parts = key.split('[')
+          , len = parts.length
+          , last = len - 1;
+
+        function parse(parts, parent, key) {
+          var part = parts.shift();
+
+          // end
+          if (!part) {
+            if (isArray(parent[key])) {
+              parent[key].push(val);
+            } else if ('object' == typeof parent[key]) {
+              parent[key] = val;
+            } else if ('undefined' == typeof parent[key]) {
+              parent[key] = val;
+            } else {
+              parent[key] = [parent[key], val];
+            }
+          // array
+          } else {
+            obj = parent[key] = parent[key] || [];
+            if (']' == part) {
+              if (isArray(obj)) {
+                if ('' != val) obj.push(val);
+              } else if ('object' == typeof obj) {
+                obj[objectKeys(obj).length] = val;
+              } else {
+                obj = parent[key] = [parent[key], val];
+              }
+            // prop
+            } else if (~part.indexOf(']')) {
+              part = part.substr(0, part.length - 1);
+              if(notint.test(part) && isArray(obj)) obj = promote(parent, key);
+              parse(parts, obj, part);
+            // key
+            } else {
+              if(notint.test(part) && isArray(obj)) obj = promote(parent, key);
+              parse(parts, obj, part);
+            }
+          }
+        }
+
+        parse(parts, parent, 'base');
+      // optimize
+      } else {
+        if (notint.test(key) && isArray(parent.base)) {
+          var t = {};
+          for(var k in parent.base) t[k] = parent.base[k];
+          parent.base = t;
+        }
+        set(parent.base, key, val);
+      }
+
+      return ret;
+    }, {base: {}}).base;
+};
+
+/**
+ * Turn the given `obj` into a query string
+ *
+ * @param {Object} obj
+ * @return {String}
+ * @api public
+ */
+
+var stringify = exports.stringify = function(obj, prefix) {
+  if (isArray(obj)) {
+    return stringifyArray(obj, prefix);
+  } else if ('[object Object]' == toString.call(obj)) {
+    return stringifyObject(obj, prefix);
+  } else if ('string' == typeof obj) {
+    return stringifyString(obj, prefix);
+  } else {
+    return prefix;
+  }
+};
+
+/**
+ * Stringify the given `str`.
+ *
+ * @param {String} str
+ * @param {String} prefix
+ * @return {String}
+ * @api private
+ */
+
+function stringifyString(str, prefix) {
+  if (!prefix) throw new TypeError('stringify expects an object');
+  return prefix + '=' + encodeURIComponent(str);
+}
+
+/**
+ * Stringify the given `arr`.
+ *
+ * @param {Array} arr
+ * @param {String} prefix
+ * @return {String}
+ * @api private
+ */
+
+function stringifyArray(arr, prefix) {
+  var ret = [];
+  if (!prefix) throw new TypeError('stringify expects an object');
+  for (var i = 0; i < arr.length; i++) {
+    ret.push(stringify(arr[i], prefix + '[]'));
+  }
+  return ret.join('&');
+}
+
+/**
+ * Stringify the given `obj`.
+ *
+ * @param {Object} obj
+ * @param {String} prefix
+ * @return {String}
+ * @api private
+ */
+
+function stringifyObject(obj, prefix) {
+  var ret = []
+    , keys = objectKeys(obj)
+    , key;
+  for (var i = 0, len = keys.length; i < len; ++i) {
+    key = keys[i];
+    ret.push(stringify(obj[key], prefix
+      ? prefix + '[' + encodeURIComponent(key) + ']'
+      : encodeURIComponent(key)));
+  }
+  return ret.join('&');
+}
+
+/**
+ * Set `obj`'s `key` to `val` respecting
+ * the weird and wonderful syntax of a qs,
+ * where "foo=bar&foo=baz" becomes an array.
+ *
+ * @param {Object} obj
+ * @param {String} key
+ * @param {String} val
+ * @api private
+ */
+
+function set(obj, key, val) {
+  var v = obj[key];
+  if (undefined === v) {
+    obj[key] = val;
+  } else if (isArray(v)) {
+    v.push(val);
+  } else {
+    obj[key] = [v, val];
+  }
+}
+
+/**
+ * Locate last brace in `str` within the key.
+ *
+ * @param {String} str
+ * @return {Number}
+ * @api private
+ */
+
+function lastBraceInKey(str) {
+  var len = str.length
+    , brace
+    , c;
+  for (var i = 0; i < len; ++i) {
+    c = str[i];
+    if (']' == c) brace = false;
+    if ('[' == c) brace = true;
+    if ('=' == c && !brace) return i;
+  }
+}
+
+});
+
 require.define("/client.js",function(require,module,exports,__dirname,__filename,process,global){var websocket = require('websocket-stream')
 var createGame = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
 var THREE = require('three')
+var url = require('url')
 
-window.socket = websocket('ws://localhost:8080')
+window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-window.game = createGame({
-  renderCallback: animateHorses
-})
+window.game = createGame({ renderCallback: animateHorses })
 game.appendTo('#container')
 
 var loader = new THREE.JSONLoader( true )
@@ -39961,31 +41047,42 @@ loader.load( "/horse.js", function( geometry ) {
 
 function animateHorses() {
   Object.keys(horses).map(function(horseID) {
-    var mesh = horses[horseID]
-    if ( mesh ) {
-      var duration = 1000;
-      var keyframes = 15, interpolation = duration / keyframes;
-      var lastKeyframe = 0, currentKeyframe = 0;
-      var time = Date.now() % duration;
-      var keyframe = Math.floor( time / interpolation );
-      if ( keyframe != currentKeyframe ) {
-       mesh.morphTargetInfluences[ lastKeyframe ] = 0;
-       mesh.morphTargetInfluences[ currentKeyframe ] = 1;
-       mesh.morphTargetInfluences[ keyframe ] = 0;
-       lastKeyframe = currentKeyframe;
-       currentKeyframe = keyframe;
-      }
-      mesh.morphTargetInfluences[ keyframe ] = ( time % interpolation ) / interpolation;
-      mesh.morphTargetInfluences[ lastKeyframe ] = 1 - mesh.morphTargetInfluences[ keyframe ];
+    var horse = horses[horseID]
+    if ( horse.mesh ) {
+      horse.tick()
 		}
   })
 }
 
-function newHorse() {
-  mesh = new THREE.Mesh( horseGeometry, new THREE.MeshLambertMaterial( { color: 0x606060, morphTargets: true } ) )
+function Horse() {
+  this.radius = 600
+	this.theta = 0
+	this.duration = 1000
+	this.keyframes = 15
+	this.interpolation = this.duration / this.keyframes
+	this.lastKeyframe = 0
+	this.currentKeyframe = 0
+	this.lastPositionTime = Date.now()
+	
+  var mesh = new THREE.Mesh( horseGeometry, new THREE.MeshLambertMaterial( { color: 0x606060, morphTargets: true } ) )
 	mesh.scale.set( 0.25, 0.25, 0.25 )
 	game.scene.add( mesh )
-	return mesh
+	this.mesh = mesh
+}
+
+Horse.prototype.tick = function() {
+  if (Date.now() - this.lastPositionTime > 150) return
+  var time = Date.now() % this.duration
+  var keyframe = Math.floor( time / this.interpolation )
+  if ( keyframe != this.currentKeyframe ) {
+    this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 0
+    this.mesh.morphTargetInfluences[ this.currentKeyframe ] = 1
+    this.mesh.morphTargetInfluences[ keyframe ] = 0
+    this.lastKeyframe = this.currentKeyframe
+    this.currentKeyframe = keyframe
+  }
+  this.mesh.morphTargetInfluences[ keyframe ] = ( time % this.interpolation ) / this.interpolation
+  this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 1 - this.mesh.morphTargetInfluences[ keyframe ]
 }
 
 window.horses = {}
@@ -39997,7 +41094,7 @@ setInterval(function() {
 
 emitter.on('join', function(id) {
   console.log('new horse!', id)
-  horses[id] = newHorse()
+  horses[id] = new Horse()
 })
 
 emitter.on('leave', function(id) {
@@ -40007,10 +41104,11 @@ emitter.on('leave', function(id) {
 
 emitter.on('position', function(id, pos) {
   var horse = horses[id]
-  if (!horse) horses[id] = newHorse()
-  var p = horses[id].position
+  if (!horse) horses[id] = new Horse()
+  var p = horses[id].mesh.position
   if (p.x === pos.x && p.y === pos.y && p.z === pos.z) return
-  horses[id].position.copy(pos)
+  horses[id].lastPositionTime = Date.now()
+  horses[id].mesh.position.copy(pos)
 })
 
 emitter.on('set', function (pos, val) {
@@ -40021,7 +41119,7 @@ emitter.on('set', function (pos, val) {
 
 emitter.on('create', function (pos, val) {
   console.log(pos, '=', val)
-  game.createBlock(vector, 1)
+  game.createBlock(new THREE.Vector3(pos.x, pos.y, pos.z), 1)
   game.addMarker(pos)
 })
 
@@ -40042,9 +41140,8 @@ window.addEventListener('keydown', function (ev) {
   }
 })
 
-document.body.addEventListener('click', function() {
-  game.requestPointerLock()
-})
+game.requestPointerLock('#container')
+
 
 });
 require("/client.js");
