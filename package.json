@@ -2,7 +2,7 @@
   "name": "voxel-server",
   "version": "0.0.1",
   "dependencies": {
-    "voxel-engine": "0.0.3",
+    "voxel-engine": "0.0.5",
     "websocket-stream": "0.0.4",
     "ws": "0.4.25",
     "ecstatic": "0.3.0",

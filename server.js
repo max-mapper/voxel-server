@@ -44,5 +44,6 @@ wss.on('connection', function(ws) {
 
 })
 
-server.listen(8080)
-console.log('Listening on :8080, open http://localhost:8080')
+var port = process.argv[2] || 8080
+server.listen(port)
+console.log('Listening on ', port, ' open http://localhost:', port)
