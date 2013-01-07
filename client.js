@@ -1,3 +1,4 @@
+var voxel = require('voxel')
 var websocket = require('websocket-stream')
 var createGame = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
@@ -6,7 +7,29 @@ var url = require('url')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-window.game = createGame({ renderCallback: animateHorses })
+
+var generator = function(low, high, x, y, z) {
+  var chunkIndex = [x, y, z].join('|')
+  var chunk = this.chunks[chunkIndex]
+  var voxels
+  if (chunk) voxels = chunk.voxels
+  return voxel.generate(low, high, function(vx, vy, vz, n) {
+    if (voxels) return voxels[n]
+    return voxel.generator['Valley'](vx, vy, vz)
+  })
+}
+
+window.game = createGame({
+  generateVoxelChunk: generator,
+  texturePath: '/textures/',
+  cubeSize: 25,
+  chunkSize: 32,
+  chunkDistance: 2,
+  startingPosition: new THREE.Vector3(35, 1024, 35),
+  worldOrigin: new THREE.Vector3(0,0,0),
+  renderCallback: animateHorses
+})
+
 game.appendTo('#container')
 
 var loader = new THREE.JSONLoader( true )
