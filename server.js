@@ -5,7 +5,28 @@ var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
 var path = require('path')
 var uuid = require('hat')
+var engine = require('voxel-engine')
+var voxel = require('voxel')
+var simplex = require('voxel-simplex-terrain')
 
+var chunkSize = 32
+var chunkDistance = 3
+var scaleFactor = 10
+var seed = process.argv[2] || uuid()
+var generator = simplex({seed: seed, scaleFactor: scaleFactor, chunkDistance: chunkDistance})
+var settings = {
+  generateVoxelChunk: generator,
+  texturePath: './textures/',
+  materials: ['grass', 'obsidian', 'dirt', 'whitewool', 'crate', 'brick'],
+  cubeSize: 25,
+  chunkSize: chunkSize,
+  chunkDistance: chunkDistance,
+  startingPosition: [0, 3000, 1000],
+  worldOrigin: [0,0,0],
+  scaleFactor: scaleFactor,
+  controlOptions: {jump: 6}
+}
+var game = engine(settings)
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
 var clients = {}
@@ -31,16 +52,10 @@ wss.on('connection', function(ws) {
     console.log(id, 'left')
     broadcast(id, 'leave', id)
   }
-  emitter.on('set', function(pos, val) {
-    broadcast(id, 'set', pos, val)
+  emitter.on('generated', function(seq) {
+    console.log(seq)
   })
-  emitter.on('create', function(pos, val) {
-    broadcast(id, 'create', pos, val)
-  })
-  emitter.on('position', function(pos) {
-    broadcast(id, 'position', id, pos)
-  })
-
+  emitter.emit('settings', settings)
 })
 
 var port = process.argv[2] || 8080
