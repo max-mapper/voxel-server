@@ -66,7 +66,7 @@ wss.on('connection', function(ws) {
       Object.keys(state).map(function(key) {
         emitter.player[key] = state[key]
       })
-      emitter.player.tick(Date.now() - emitter.lastUpdate)
+      emitter.player.tick(Date.now() - emitter.lastUpdate, game.updatePlayerPhysics.bind(game))
       var newPosition = {
         position: emitter.player.yawObject.position,
         velocity: emitter.player.velocity
