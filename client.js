@@ -20,6 +20,15 @@ function createGame(options) {
     }
   })
   var game = engine(options)
+  game.on('tick', function() {
+    emitter.emit('state', {
+      moveForward: game.controls.moveForward,
+      moveBackward: game.controls.moveBackward,
+      moveLeft: game.controls.moveLeft,
+      moveRight: game.controls.moveRight,
+      enabled: game.controls.enabled
+    })
+  })
   game.appendTo('#container')
   game.requestPointerLock('#container')
   game.on('mousedown', function (pos) {
@@ -40,6 +49,21 @@ function createGame(options) {
 emitter.on('settings', function(settings) {
   window.game = createGame(settings)
   emitter.emit('generated', Date.now())
+})
+
+emitter.on('update', function(update) {
+  game.controls.velocity.copy(update.velocity)
+  var to = new game.THREE.Vector3()
+  to.copy(update.position)
+  var from = game.controls.yawObject.position
+  var distance = from.distanceTo(to)
+  if (distance > 20) {
+    from.copy(update.position)
+  } else if (distance > 0.1){
+    from.x += to.x * 0.1
+    from.y += to.y * 0.1
+    from.z += to.z * 0.1
+  }
 })
 
 var erase = true

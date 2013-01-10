@@ -3,6 +3,7 @@ var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
+var playerPhysics = require('player-physics')
 var path = require('path')
 var uuid = require('hat')
 var engine = require('voxel-engine')
@@ -26,8 +27,8 @@ var settings = {
   cubeSize: 25,
   chunkSize: chunkSize,
   chunkDistance: chunkDistance,
-  startingPosition: [0, 100, 0],
-  worldOrigin: [0,0,0],
+  startingPosition: {x: 0, y: 100, z: 0},
+  worldOrigin: {x: 0, y: 0, z: 0},
   scaleFactor: scaleFactor,
   controlOptions: {jump: 6}
 }
@@ -48,6 +49,9 @@ wss.on('connection', function(ws) {
   var emitter = duplexEmitter(stream)
   var id = uuid()
   clients[id] = emitter
+  emitter.lastUpdate = Date.now()
+  emitter.player = playerPhysics()
+  emitter.player.yawObject.position.copy(settings.startingPosition)
   console.log(id, 'joined')
   broadcast(id, 'join', id)
   stream.once('end', leave)
@@ -58,7 +62,18 @@ wss.on('connection', function(ws) {
     broadcast(id, 'leave', id)
   }
   emitter.on('generated', function(seq) {
-    console.log(seq)
+    emitter.on('state', function(state) {
+      Object.keys(state).map(function(key) {
+        emitter.player[key] = state[key]
+      })
+      emitter.player.tick(Date.now() - emitter.lastUpdate)
+      var newPosition = {
+        position: emitter.player.yawObject.position,
+        velocity: emitter.player.velocity
+      }
+      emitter.emit('update', newPosition)
+      emitter.lastUpdate = Date.now()
+    })
   })
   emitter.on('ping', function(data) {
     emitter.emit('pong', data)
