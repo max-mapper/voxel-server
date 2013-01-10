@@ -10,10 +10,15 @@ var voxel = require('voxel')
 var simplex = require('voxel-simplex-terrain')
 
 var chunkSize = 32
-var chunkDistance = 3
+var chunkDistance = 1
 var scaleFactor = 10
 var seed = process.argv[2] || uuid()
-var generator = simplex({seed: seed, scaleFactor: scaleFactor, chunkDistance: chunkDistance})
+
+function getMaterialIndex(seed, simplex, width, x, y, z) {
+  return y > 0 ? 0 : (y == 0 ? 1 : 2);
+}
+
+var generator = simplex({seed: seed, scaleFactor: scaleFactor, chunkDistance: chunkDistance, getMaterialIndex: getMaterialIndex})
 var settings = {
   generateVoxelChunk: generator,
   texturePath: './textures/',
@@ -21,7 +26,7 @@ var settings = {
   cubeSize: 25,
   chunkSize: chunkSize,
   chunkDistance: chunkDistance,
-  startingPosition: [0, 3000, 1000],
+  startingPosition: [0, 100, 0],
   worldOrigin: [0,0,0],
   scaleFactor: scaleFactor,
   controlOptions: {jump: 6}
@@ -54,6 +59,9 @@ wss.on('connection', function(ws) {
   }
   emitter.on('generated', function(seq) {
     console.log(seq)
+  })
+  emitter.on('ping', function(data) {
+    emitter.emit('pong', data)
   })
   emitter.emit('settings', settings)
 })

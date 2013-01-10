@@ -1,9 +1,10 @@
+var url = require('url')
 var voxel = require('voxel')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
-var url = require('url')
 var simplex = require('voxel-simplex-terrain')
+var AverageLatency = require('./latency')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
@@ -13,7 +14,10 @@ function createGame(options) {
   options.generateVoxelChunk = simplex({
     seed: options.seed,
     scaleFactor: options.scaleFactor,
-    chunkDistance: options.seed
+    chunkDistance: options.chunkDistance,
+    getMaterialIndex: function (seed, simplex, width, x, y, z) {
+      return y > 0 ? 0 : (y == 0 ? 1 : 2);
+    }
   })
   var game = engine(options)
   game.appendTo('#container')
@@ -26,6 +30,9 @@ function createGame(options) {
       game.createBlock(pos, 1)
       emitter.emit('create', JSON.parse(JSON.stringify(pos)), 1)
     }
+  })
+  new AverageLatency(emitter, function(latency) {
+    game.emit('latency', latency)
   })
   return game
 }
