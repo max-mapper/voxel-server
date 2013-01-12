@@ -8,7 +8,7 @@ var AverageLatency = require('./latency')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-window.horses = {}
+var playerID
 
 function createGame(options) {
   options.generateVoxelChunk = simplex({
@@ -21,12 +21,15 @@ function createGame(options) {
   })
   var game = engine(options)
   game.on('tick', function() {
+    game.controls.enabled = false
+  })
+  game.controls.on('command', function() {
     emitter.emit('state', {
       moveForward: game.controls.moveForward,
       moveBackward: game.controls.moveBackward,
       moveLeft: game.controls.moveLeft,
       moveRight: game.controls.moveRight,
-      enabled: game.controls.enabled
+      enabled: true
     })
   })
   game.appendTo('#container')
@@ -46,12 +49,20 @@ function createGame(options) {
   return game
 }
 
+emitter.on('id', function(id) {
+  console.log('id', id)
+  playerID = id
+})
+
 emitter.on('settings', function(settings) {
   window.game = createGame(settings)
   emitter.emit('generated', Date.now())
 })
 
-emitter.on('update', function(update) {
+emitter.on('update', function(updates) {
+  if (!playerID) return
+  var update = updates.positions[playerID]
+  if (!update) return
   game.controls.velocity.copy(update.velocity)
   var to = new game.THREE.Vector3()
   to.copy(update.position)
@@ -59,7 +70,7 @@ emitter.on('update', function(update) {
   var distance = from.distanceTo(to)
   if (distance > 20) {
     from.copy(update.position)
-  } else if (distance > 0.1){
+  } else if (distance > 0.01){
     from.x += to.x * 0.1
     from.y += to.y * 0.1
     from.z += to.z * 0.1
@@ -126,11 +137,6 @@ window.addEventListener('keydown', ctrlToggle)
 //   if (Object.keys(horses).length === 0) return
 //   emitter.emit('position', JSON.parse(JSON.stringify(game.controls.yawObject.position.clone())))
 // }, 10)
-
-// emitter.on('join', function(id) {
-//   console.log('new horse!', id)
-//   horses[id] = new Horse()
-// })
 // 
 // emitter.on('leave', function(id) {
 //   game.scene.remove(horses[id])

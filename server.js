@@ -44,6 +44,22 @@ function broadcast(id, cmd, arg1, arg2) {
   })
 }
 
+setInterval(function() {
+  var clientKeys = Object.keys(clients)
+  if (clientKeys.length === 0) return
+  var update = {positions:{}}
+  clientKeys.map(function(key) {
+    var emitter = clients[key]
+    if (!emitter.player.enabled) return
+    update.positions[key] = {
+      position: emitter.player.yawObject.position,
+      velocity: emitter.player.velocity
+    }
+  })
+  update.time = Date.now()
+  broadcast(false, 'update', update)
+}, 1000/22)
+
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
   var emitter = duplexEmitter(stream)
@@ -53,6 +69,7 @@ wss.on('connection', function(ws) {
   emitter.player = playerPhysics()
   emitter.player.yawObject.position.copy(settings.startingPosition)
   console.log(id, 'joined')
+  emitter.emit('id', id)
   broadcast(id, 'join', id)
   stream.once('end', leave)
   stream.once('error', leave)
@@ -66,12 +83,8 @@ wss.on('connection', function(ws) {
       Object.keys(state).map(function(key) {
         emitter.player[key] = state[key]
       })
-      emitter.player.tick(Date.now() - emitter.lastUpdate, game.updatePlayerPhysics.bind(game))
-      var newPosition = {
-        position: emitter.player.yawObject.position,
-        velocity: emitter.player.velocity
-      }
-      emitter.emit('update', newPosition)
+      var delta = Date.now() - emitter.lastUpdate
+      emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
       emitter.lastUpdate = Date.now()
     })
   })
