@@ -3,9 +3,13 @@ var inherits = require('inherits')
 var events = require('events')
 module.exports = Multiplayer
 
-function Multiplayer(game) {
+function Multiplayer(game, clientEmitter) {
   this.game = game
   this.clients = {}
+  if (clientEmitter) {
+    this.clients[clientEmitter.playerID] = clientEmitter
+    this.clientEmitter = clientEmitter
+  }
 
   this.currentPhysicsTime = Date.now()
   
@@ -23,9 +27,22 @@ function Multiplayer(game) {
 
 inherits(Multiplayer, events.EventEmitter)
 
+Multiplayer.prototype.getClientState = function(state) {
+  //Update what sequence we are on now
+  this.inputSeq += 1
+
+  var newState = {
+    state: state,
+    time: +Date.now().toFixed(3),
+    seq: this.inputSeq
+  }
+
+  return newState
+}
+
 Multiplayer.prototype.clientMeasureLatency = function() {
   var self = this
-  this.averageLatency = new AverageLatency(this.emitter, function(latency) {
+  this.averageLatency = new AverageLatency(this.clientEmitter, function(latency) {
     self.emit('latency', latency)
     self.netLatency = latency/2
     self.netPing = latency

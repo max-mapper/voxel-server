@@ -1,13 +1,15 @@
 var url = require('url')
-var voxel = require('voxel')
 var websocket = require('websocket-stream')
-var engine = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
+var voxel = require('voxel')
+var engine = require('voxel-engine')
 var simplex = require('voxel-simplex-terrain')
+var Multiplayer = require('./multiplayer')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-var playerID
+emitter.inputs = []
+var multiplayer, game
 
 function createGame(options) {
   options.generateVoxelChunk = simplex({
@@ -18,24 +20,12 @@ function createGame(options) {
       return y > 0 ? 0 : (y == 0 ? 1 : 2);
     }
   })
-  var game = engine(options)
+  window.game = game = engine(options)
   
   // warning: monkeypatching ahead!
   game._updatePhysics = game.updatePhysics
   game.updatePhysics = function() {} // no-op, turns off built in physics rendering
   
-  game.on('tick', function() {
-    game.controls.enabled = false
-  })
-  game.controls.on('command', function() {
-    emitter.emit('state', {
-      moveForward: game.controls.moveForward,
-      moveBackward: game.controls.moveBackward,
-      moveLeft: game.controls.moveLeft,
-      moveRight: game.controls.moveRight,
-      enabled: true
-    })
-  })
   game.appendTo('#container')
   game.requestPointerLock('#container')
   game.on('mousedown', function (pos) {
@@ -47,35 +37,42 @@ function createGame(options) {
       emitter.emit('create', JSON.parse(JSON.stringify(pos)), 1)
     }
   })
-  return game
+}
+
+function createMultiplayer() {
+  multiplayer = new Multiplayer(game, emitter)
+  game.controls.on('command', function(prop, setting) {
+    var input = {
+      moveForward: game.controls.moveForward,
+      moveBackward: game.controls.moveBackward,
+      moveLeft: game.controls.moveLeft,
+      moveRight: game.controls.moveRight,
+      enabled: true
+    }
+    var state = multiplayer.getClientState(input)
+    emitter.inputs.push(state)
+    emitter.emit('state', state)
+  })
 }
 
 emitter.on('id', function(id) {
-  console.log('id', id)
-  playerID = id
+  emitter.playerID = id
+  if (game) createMultiplayer()
 })
 
 emitter.on('settings', function(settings) {
-  window.game = createGame(settings)
+  createGame(settings)
   emitter.emit('generated', Date.now())
+  if (emitter.playerID) createMultiplayer()
 })
 
 emitter.on('update', function(updates) {
-  if (!playerID) return
-  var update = updates.positions[playerID]
+  if (!emitter.playerID) return
+  var update = updates.positions[emitter.playerID]
   if (!update) return
   game.controls.velocity.copy(update.velocity)
-  var to = new game.THREE.Vector3()
-  to.copy(update.position)
   var from = game.controls.yawObject.position
-  var distance = from.distanceTo(to)
-  if (distance > 20) {
-    from.copy(update.position)
-  } else if (distance > 0.01){
-    from.x += to.x * 0.1
-    from.y += to.y * 0.1
-    from.z += to.z * 0.1
-  }
+  from.copy(from.lerpSelf(update.position, 0.1))
 })
 
 var erase = true

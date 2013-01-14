@@ -34,6 +34,7 @@ var settings = {
   controlOptions: {jump: 6}
 }
 var game = engine(settings)
+
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
 var multiplayer = new Multiplayer(game)
@@ -49,12 +50,16 @@ multiplayer.on('serverUpdate', function(update) {
   broadcast(false, 'update', update)
 })
 
+multiplayer.on('physicsUpdate', function(delta) {
+  
+})
+
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
   var emitter = duplexEmitter(stream)
   var id = uuid()
   multiplayer.clients[id] = emitter
-  emitter.lastUpdate = Date.now()
+  emitter.lastInputTime = Date.now()
   emitter.player = playerPhysics()
   emitter.player.yawObject.position.copy(settings.startingPosition)
   console.log(id, 'joined')
@@ -69,14 +74,15 @@ wss.on('connection', function(ws) {
   }
   emitter.on('generated', function(seq) {
     console.log('generated', seq)
-    // emitter.on('state', function(state) {
-    //   Object.keys(state).map(function(key) {
-    //     emitter.player[key] = state[key]
-    //   })
-    //   var delta = Date.now() - emitter.lastUpdate
-    //   emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
-    //   emitter.lastUpdate = Date.now()
-    // })
+    emitter.on('state', function(update) {
+      Object.keys(update.state).map(function(key) {
+        emitter.player[key] = update.state[key]
+      })
+      var delta = update.time - emitter.lastInputTime
+      emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
+      emitter.lastInputTime = update.time
+      emitter.lastInputSeq = update.seq
+    })
   })
   emitter.on('ping', function(data) {
     emitter.emit('pong', data)
