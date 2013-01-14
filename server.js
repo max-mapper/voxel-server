@@ -9,7 +9,6 @@ var uuid = require('hat')
 var engine = require('voxel-engine')
 var voxel = require('voxel')
 var simplex = require('voxel-simplex-terrain')
-var Multiplayer = require('./multiplayer')
 
 var chunkSize = 32
 var chunkDistance = 1
@@ -34,33 +33,39 @@ var settings = {
   controlOptions: {jump: 6}
 }
 var game = engine(settings)
-
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
-var multiplayer = new Multiplayer(game)
+var clients = {}
 
 function broadcast(id, cmd, arg1, arg2) {
-  Object.keys(multiplayer.clients).map(function(client) {
+  Object.keys(clients).map(function(client) {
     if (client === id) return
-    multiplayer.clients[client].emit(cmd, arg1, arg2)
+    clients[client].emit(cmd, arg1, arg2)
   })
 }
 
-multiplayer.on('serverUpdate', function(update) {
+setInterval(function() {
+  var clientKeys = Object.keys(clients)
+  if (clientKeys.length === 0) return
+  var update = {positions:{}}
+  clientKeys.map(function(key) {
+    var emitter = clients[key]
+    if (!emitter.player.enabled) return
+    update.positions[key] = {
+      position: emitter.player.yawObject.position,
+      velocity: emitter.player.velocity
+    }
+  })
+  update.time = Date.now()
   broadcast(false, 'update', update)
-})
-
-multiplayer.on('physicsUpdate', function(delta) {
-  
-})
+}, 1000/22)
 
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
   var emitter = duplexEmitter(stream)
   var id = uuid()
-  multiplayer.clients[id] = emitter
-  emitter.lastInputTime = Date.now()
-  emitter.inputs = []
+  clients[id] = emitter
+  emitter.lastUpdate = Date.now()
   emitter.player = playerPhysics()
   emitter.player.yawObject.position.copy(settings.startingPosition)
   console.log(id, 'joined')
@@ -69,20 +74,18 @@ wss.on('connection', function(ws) {
   stream.once('end', leave)
   stream.once('error', leave)
   function leave() {
-    delete multiplayer.clients[id]
+    delete clients.id
     console.log(id, 'left')
     broadcast(id, 'leave', id)
   }
   emitter.on('generated', function(seq) {
-    emitter.on('state', function(update) {
-      Object.keys(update.state).map(function(key) {
-        emitter.player[key] = update.state[key]
+    emitter.on('state', function(state) {
+      Object.keys(state).map(function(key) {
+        emitter.player[key] = state[key]
       })
-      emitter.inputs.push(update)
-      var delta = update.time - emitter.lastInputTime
+      var delta = Date.now() - emitter.lastUpdate
       emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
-      emitter.lastInputTime = update.time
-      emitter.lastInputSeq = update.seq      
+      emitter.lastUpdate = Date.now()
     })
   })
   emitter.on('ping', function(data) {
