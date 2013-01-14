@@ -54,10 +54,10 @@ Multiplayer.prototype.startPhysicsLoop = function(rate) {
   var self = this
   this.physicsLoopID = setInterval(function() {
     var now = Date.now()
-    var delta = now - self.currentPhysicsTime
+    self.lastPhysicsDelta = now - self.currentPhysicsTime
     self.lastPhysicsTime = self.currentPhysicsTime
     self.currentPhysicsTime = now
-    self.emit('physicsUpdate', delta)
+    self.emit('physicsUpdate', self.lastPhysicsDelta)
   }, rate || 1000/66.666)
 }
 
@@ -119,7 +119,7 @@ Multiplayer.prototype.clientOnUpdate = function(data) {
 
       //we limit the buffer in seconds worth of updates
       //60fps*buffer seconds = number of samples
-    if(this.serverUpdates.length >= ( 60*this.bufferSize )) {
+    if(this.serverUpdates.length >= ( 60 * this.bufferSize )) {
       this.serverUpdates.splice(0,1);
     }
 
@@ -137,56 +137,47 @@ Multiplayer.prototype.clientOnUpdate = function(data) {
 }; //game_core.client_onserverupdate_recieved
 
 Multiplayer.prototype.clientProcessNetPredictionCorrection = function() {
+  if(!this.serverUpdates.length) return
+  var latestServerData = this.serverUpdates[this.serverUpdates.length - 1]
+  var myServerPos = latestServerData.positions[this.clientEmitter.playerID].position
 
-    //No updates...
-  if(!this.server_updates.length) return;
+  //here we handle our local input prediction ,
+  //by correcting it with the server and reconciling its differences
 
-    //The most recent server update
-  var latest_server_data = this.server_updates[this.server_updates.length-1];
-
-    //Our latest server position
-  var my_server_pos = latest_server_data.positions[playerID]
-
-      //here we handle our local input prediction ,
-      //by correcting it with the server and reconciling its differences
-
-    var my_last_input_on_server = latest_server_data.lastPositions[playerID]
-    if(my_last_input_on_server) {
-        //The last input sequence index in my local input list
-      var lastinputseq_index = -1;
-        //Find this input in the list, and store the index
-      for(var i = 0; i < this.players.self.inputs.length; ++i) {
-        if(this.players.self.inputs[i].seq == my_last_input_on_server) {
-          lastinputseq_index = i;
-          break;
-        }
-      }
-
-        //Now we can crop the list of any updates we have already processed
-      if(lastinputseq_index != -1) {
-        //so we have now gotten an acknowledgement from the server that our inputs here have been accepted
-        //and that we can predict from this known position instead
-
-          //remove the rest of the inputs we have confirmed on the server
-        var number_to_clear = Math.abs(lastinputseq_index - (-1));
-        this.players.self.inputs.splice(0, number_to_clear);
-          //The player is now located at the new server position, authoritive server
-        this.players.self.cur_state.pos = this.pos(my_server_pos);
-        this.players.self.last_input_seq = lastinputseq_index;
-          //Now we reapply all the inputs that we have locally that
-          //the server hasn't yet confirmed. This will 'keep' our position the same,
-          //but also confirm the server position at the same time.
-          //Work out the time we have since we updated the state
-        var delta = (this.local_time - this.players.self.state_time) / this._pdt;
-        this.emit('updateClientPhysics', delta)
+  var myLastInputOnServer = this.clientEmitter.lastInputSeq
+  console.log('myLastInputOnServer', myLastInputOnServer)
+  
+  if(myLastInputOnServer) {
+      //The last input sequence index in my local input list
+    var lastInputSeqIndex = -1;
+      //Find this input in the list, and store the index
+    for(var i = 0; i < this.clientEmitter.inputs.length; ++i) {
+      if(this.clientEmitter.inputs[i].seq == myLastInputOnServer) {
+        lastInputSeqIndex = i;
+        break;
       }
     }
+      //Now we can crop the list of any updates we have already processed
+    if(lastInputSeqIndex != -1) {
+      //so we have now gotten an acknowledgement from the server that our inputs here have been accepted
+      //and that we can predict from this known position instead
 
+        //remove the rest of the inputs we have confirmed on the server
+      var numberToClear = Math.abs(lastInputSeqIndex - (-1));
+      this.clientEmitter.inputs.splice(0, numberToClear);
+        //The player is now located at the new server position, authoritive server
+      this.clientEmitter.lastInputSeq = lastInputSeqIndex;
+        //Now we reapply all the inputs that we have locally that
+        //the server hasn't yet confirmed. This will 'keep' our position the same,
+        //but also confirm the server position at the same time.
+        //Work out the time we have since we updated the state
+      this.emit('updateClientPosition', myServerPos)
+    }
+  }
 }
 
 Multiplayer.prototype.clientProcessUpdates = function() {
-
-  if(!this.server_updates.length) return
+  if(!this.serverUpdates.length) return
 
   //First : Find the position in the updates, on the timeline
   //We call this current_time, then we find the past_pos and the target_pos using this,
@@ -194,8 +185,8 @@ Multiplayer.prototype.clientProcessUpdates = function() {
   // Then :  other player position = lerp ( past_pos, target_pos, current_time );
 
   //Find the position in the timeline of updates we stored.
-  var current_time = this.client_time;
-  var count = this.server_updates.length-1;
+  var currentTime = this.clientTime;
+  var count = this.serverUpdates.length-1;
   var target = null;
   var previous = null;
 
@@ -205,12 +196,12 @@ Multiplayer.prototype.clientProcessUpdates = function() {
     //samples. Usually this iterates very little before breaking out with a target.
   for(var i = 0; i < count; ++i) {
 
-    var point = this.server_updates[i];
-    var next_point = this.server_updates[i+1];
+    var point = this.serverUpdates[i];
+    var nextPoint = this.serverUpdates[i+1];
 
       //Compare our point in time with the server times we have
-    if(current_time > point.time && current_time < next_point.time) {
-      target = next_point;
+    if(currentTime > point.time && currentTime < nextPoint.time) {
+      target = nextPoint;
       previous = point;
       break;
     }
@@ -219,8 +210,8 @@ Multiplayer.prototype.clientProcessUpdates = function() {
   //With no target we store the last known
   //server position and move to that instead
   if (!target) {
-    target = this.server_updates[0];
-    previous = this.server_updates[0];
+    target = this.serverUpdates[0];
+    previous = this.serverUpdates[0];
   }
 
   //Now that we have a target and a previous destination,
@@ -230,37 +221,35 @@ Multiplayer.prototype.clientProcessUpdates = function() {
 
    if(target && previous) {
 
-     this.target_time = target.time;
+     this.targetTime = target.time
    
-     var difference = this.target_time - current_time;
-     var max_difference = +(target.time - previous.time).toFixed(3);
-     var time_point = +(difference/max_difference).toFixed(3);
+     var difference = this.targetTime - currentTime
+     var maxDifference = +(target.time - previous.time).toFixed(3)
+     var timePoint = +(difference/maxDifference).toFixed(3)
  
      //Because we use the same target and previous in extreme cases
      //It is possible to get incorrect values due to division by 0 difference
      //and such. This is a safe guard and should probably not be here. lol.
-     if( isNaN(time_point) ) time_point = 0;
-     if(time_point == -Infinity) time_point = 0;
-     if(time_point == Infinity) time_point = 0;
+     if( isNaN(timePoint) ) time_point = 0
+     if(timePoint == -Infinity) timePoint = 0
+     if(timePoint == Infinity) timePoint = 0
    
      //The most recent server update
-     var latest_server_data = this.server_updates[ this.server_updates.length-1 ];
+     var latestServerData = this.serverUpdates[ this.serverUpdates.length-1 ]
    
      //Now, if not predicting client movement , we will maintain the local player position
      //using the same method, smoothing the players information from the past.
    
+     var myID = this.clientEmitter.playerID
      //These are the exact server positions from this tick, but only for the ghost
-     var my_server_pos = this.players.self.host ? latest_server_data.hp : latest_server_data.cp;
+     var myServerPos = latestServerData.positions[myID].position
    
      //The other players positions in this timeline, behind us and in front of us
-     var my_target_pos = this.players.self.host ? target.hp : target.cp;
-     var my_past_pos = this.players.self.host ? previous.hp : previous.cp;
+     var myTargetPos = target.positions[myID].position
+     var myPastPos = previous.positions[myID].position
    
-     var local_target = my_past_pos.lerp(my_target_pos, time_point)
-   
-     //Smoothly follow the destination position
-     this.players.self.pos = this.players.self.pos.lerp( local_target, this._pdt*this.client_smooth);
-   
+     var delta = this.lastPhysicsDelta * this.clientSmooth
+     this.emit('clientPrediction', myPastPos, myTargetPos, timePoint, delta)
   }
 }
 ;

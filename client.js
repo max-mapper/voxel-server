@@ -53,6 +53,21 @@ function createMultiplayer() {
     emitter.inputs.push(state)
     emitter.emit('state', state)
   })
+  multiplayer.on('clientPrediction', function(pastPoint, targetPoint, timePoint, delta) {
+    pastPoint = new game.THREE.Vector3().copy(pastPoint)
+    targetPoint = new game.THREE.Vector3().copy(targetPoint)
+    var target = pastPoint.lerpSelf(targetPoint, timePoint)
+    var from = game.controls.yawObject.position
+    from.copy(from.lerpSelf(target, delta))
+    console.log('move', target)
+  })
+  multiplayer.on('updateClientPosition', function(pos) {
+    var from = game.controls.yawObject.position
+    from.copy(pos)
+  })
+  game.on('tick', function() {
+    multiplayer.clientProcessUpdates()
+  })
 }
 
 emitter.on('id', function(id) {
@@ -68,11 +83,14 @@ emitter.on('settings', function(settings) {
 
 emitter.on('update', function(updates) {
   if (!emitter.playerID) return
-  var update = updates.positions[emitter.playerID]
-  if (!update) return
-  game.controls.velocity.copy(update.velocity)
-  var from = game.controls.yawObject.position
-  from.copy(from.lerpSelf(update.position, 0.1))
+  if (!updates.positions[emitter.playerID]) return
+  multiplayer.clientOnUpdate(updates)
+  // var update = updates.positions[emitter.playerID]
+  // if (!update) return
+  // game.controls.velocity.copy(update.velocity)
+  // var from = game.controls.yawObject.position
+  // from.copy(from.lerpSelf(update.position, 0.1))
+  // 
 })
 
 var erase = true

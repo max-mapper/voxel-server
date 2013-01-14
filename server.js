@@ -60,6 +60,7 @@ wss.on('connection', function(ws) {
   var id = uuid()
   multiplayer.clients[id] = emitter
   emitter.lastInputTime = Date.now()
+  emitter.inputs = []
   emitter.player = playerPhysics()
   emitter.player.yawObject.position.copy(settings.startingPosition)
   console.log(id, 'joined')
@@ -68,20 +69,20 @@ wss.on('connection', function(ws) {
   stream.once('end', leave)
   stream.once('error', leave)
   function leave() {
-    delete multiplayer.clients.id
+    delete multiplayer.clients[id]
     console.log(id, 'left')
     broadcast(id, 'leave', id)
   }
   emitter.on('generated', function(seq) {
-    console.log('generated', seq)
     emitter.on('state', function(update) {
       Object.keys(update.state).map(function(key) {
         emitter.player[key] = update.state[key]
       })
+      emitter.inputs.push(update)
       var delta = update.time - emitter.lastInputTime
       emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
       emitter.lastInputTime = update.time
-      emitter.lastInputSeq = update.seq
+      emitter.lastInputSeq = update.seq      
     })
   })
   emitter.on('ping', function(data) {
