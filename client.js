@@ -120,6 +120,7 @@ function updatePlayerPosition(id, pos) {
   var player = players[id]
   if (!player) {
     var playerMesh = viking.createPlayerObject()
+    playerMesh.children[0].position.y = -18 // flush with floor
     players[id] = playerMesh
     playerMesh.position.y = 10
     game.scene.add(playerMesh)
