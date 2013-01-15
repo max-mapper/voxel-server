@@ -22,7 +22,8 @@ function createGame(options) {
     }
   })
   game = engine(options)
-  game.controls.on('command', function() {
+  game.controls.on('command', function(command) {
+    if (command === 'jump') return emitter.emit('jump')
     emitter.emit('state', {
       movement: {
         moveForward: game.controls.moveForward,
@@ -47,11 +48,13 @@ function createGame(options) {
 
   game.on('mousedown', function (pos) {
     if (erase) {
-      game.setBlock(pos, 0)
-      emitter.emit('set', JSON.parse(JSON.stringify(pos)), 0)
+      var voxVec = this.voxels.voxelVector(pos)
+      var cid = this.voxels.chunkAtPosition(pos).join('|')
+      emitter.emit('set', cid, voxVec, 0)
     } else {
-      game.createBlock(pos, 1)
-      emitter.emit('create', JSON.parse(JSON.stringify(pos)), 1)
+      var newBlock = game.checkBlock(pos)
+      if (!newBlock) return
+      emitter.emit('set', newBlock.chunkIndex, newBlock.voxelVector, 1)
     }
   })
   
@@ -75,17 +78,22 @@ function createGame(options) {
     delete players[id]
   })
 
-  emitter.on('set', function (pos, val) {
-    console.log(pos, '=', val)
-    game.setBlock(new game.THREE.Vector3(pos.x, pos.y, pos.z), val)
-    game.addMarker(pos)
+  emitter.on('set', function (ckey, pos, val) {
+    voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
+    game.showChunk(game.voxels.chunks[ckey])
   })
 
-  emitter.on('create', function (pos, val) {
-    console.log(pos, '=', val)
-    game.createBlock(new game.THREE.Vector3(pos.x, pos.y, pos.z), 1)
-    game.addMarker(pos)
-  })
+  function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
+    var chunk = game.voxels.chunks[ckey]
+    if (!chunk) return false
+    var size = game.voxels.chunkSize
+    var vidx = v.x + v.y*size + v.z*size*size
+    if (typeof val !== 'undefined') {
+      chunk.voxels[vidx] = val
+    }
+    var v = chunk.voxels[vidx]
+    return v
+  }
   
   return game
 }

@@ -37,10 +37,10 @@ var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
 var clients = {}
 
-function broadcast(id, cmd, arg1, arg2) {
+function broadcast(id, cmd, arg1, arg2, arg3) {
   Object.keys(clients).map(function(client) {
     if (client === id) return
-    clients[client].emit(cmd, arg1, arg2)
+    clients[client].emit(cmd, arg1, arg2, arg3)
   })
 }
 
@@ -64,7 +64,6 @@ setInterval(function() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     var delta = Date.now() - emitter.lastUpdate
-    emitter.scene.updateMatrixWorld()
     emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
     emitter.lastUpdate = Date.now()
   })
@@ -99,25 +98,40 @@ wss.on('connection', function(ws) {
     broadcast(id, 'leave', id)
   }
   emitter.on('generated', function(seq) {
+    emitter.on('jump', function() {
+      emitter.player.emit('command', 'jump')
+    })
     emitter.on('state', function(state) {
       Object.keys(state.movement).map(function(key) {
         emitter.player[key] = state.movement[key]
       })
       emitter.player.yawObject.rotation.y = state.rotation.y
       emitter.player.pitchObject.rotation.x = state.rotation.x
+      emitter.scene.updateMatrixWorld()
     })
   })
   emitter.on('ping', function(data) {
     emitter.emit('pong', data)
   })
   emitter.emit('settings', settings)
-  emitter.on('set', function(pos, val) {
-    broadcast(id, 'set', pos, val)
-  })
-  emitter.on('create', function(pos, val) {
-    broadcast(id, 'create', pos, val)
+  emitter.on('set', function(ckey, pos, val) {
+    var before = voxelAtChunkIndexAndVoxelVector(ckey, pos)
+    var after = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
+    broadcast(false, 'set', ckey, pos, val)
   })
 })
+
+function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
+  var chunk = game.voxels.chunks[ckey]
+  if (!chunk) return false
+  var size = game.voxels.chunkSize
+  var vidx = v.x + v.y*size + v.z*size*size
+  if (typeof val !== 'undefined') {
+    chunk.voxels[vidx] = val
+  }
+  var v = chunk.voxels[vidx]
+  return v
+}
 
 var port = process.argv[2] || 8080
 server.listen(port)
