@@ -111,6 +111,12 @@ wss.on('connection', function(ws) {
     emitter.emit('pong', data)
   })
   emitter.emit('settings', settings)
+  emitter.on('set', function(pos, val) {
+    broadcast(id, 'set', pos, val)
+  })
+  emitter.on('create', function(pos, val) {
+    broadcast(id, 'create', pos, val)
+  })
 })
 
 var port = process.argv[2] || 8080
