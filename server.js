@@ -50,15 +50,31 @@ setInterval(function() {
   var update = {positions:{}}
   clientKeys.map(function(key) {
     var emitter = clients[key]
-    if (!emitter.player.enabled) return
     update.positions[key] = {
-      position: emitter.player.yawObject.position,
-      velocity: emitter.player.velocity
+      position: emitter.yaw.position
     }
   })
   update.time = Date.now()
   broadcast(false, 'update', update)
 }, 1000/22)
+
+setInterval(function() {
+  var clientKeys = Object.keys(clients)
+  if (clientKeys.length === 0) return
+  clientKeys.map(function(key) {
+    var emitter = clients[key]
+    var delta = Date.now() - emitter.lastUpdate
+    // emitter.scene.updateMatrixWorld()
+    // emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
+    
+    var before = emitter.yaw.position.z
+    emitter.scene.updateMatrixWorld()
+    emitter.yaw.translateZ( -1 )
+    console.log(emitter.yaw.position.z - before, emitter.yaw.rotation.y, emitter.pitch.rotation.x)
+    
+    emitter.lastUpdate = Date.now()
+  })
+}, 1000/66)
 
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
@@ -66,8 +82,15 @@ wss.on('connection', function(ws) {
   var id = uuid()
   clients[id] = emitter
   emitter.lastUpdate = Date.now()
-  emitter.player = playerPhysics()
-  emitter.player.yawObject.position.copy(settings.startingPosition)
+  
+  emitter.scene = new game.THREE.Scene()
+  emitter.pitch = new game.THREE.Object3D()
+  emitter.yaw = new game.THREE.Object3D()
+  emitter.yaw.position.copy(settings.startingPosition)
+  emitter.yaw.position.y = 10
+  emitter.yaw.add( emitter.pitch )
+  emitter.scene.add( emitter.yaw )
+
   console.log(id, 'joined')
   emitter.emit('id', id)
   broadcast(id, 'join', id)
@@ -80,12 +103,11 @@ wss.on('connection', function(ws) {
   }
   emitter.on('generated', function(seq) {
     emitter.on('state', function(state) {
-      Object.keys(state).map(function(key) {
-        emitter.player[key] = state[key]
-      })
-      var delta = Date.now() - emitter.lastUpdate
-      emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
-      emitter.lastUpdate = Date.now()
+      // Object.keys(state.movement).map(function(key) {
+      //   emitter.player[key] = state.movement[key]
+      // })
+      emitter.yaw.rotation.y = state.rotation.y
+      emitter.pitch.rotation.x = state.rotation.x
     })
   })
   emitter.on('ping', function(data) {

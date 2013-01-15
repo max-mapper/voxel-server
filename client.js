@@ -8,7 +8,7 @@ var AverageLatency = require('./latency')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-var playerID
+var playerID, game
 
 function createGame(options) {
   options.generateVoxelChunk = simplex({
@@ -19,21 +19,26 @@ function createGame(options) {
       return y > 0 ? 0 : (y == 0 ? 1 : 2);
     }
   })
-  var game = engine(options)
-  game.on('tick', function() {
-    game.controls.enabled = false
-  })
+  game = engine(options)
   game.controls.on('command', function() {
     emitter.emit('state', {
-      moveForward: game.controls.moveForward,
-      moveBackward: game.controls.moveBackward,
-      moveLeft: game.controls.moveLeft,
-      moveRight: game.controls.moveRight,
-      enabled: true
+      movement: {
+        moveForward: game.controls.moveForward,
+        moveBackward: game.controls.moveBackward,
+        moveLeft: game.controls.moveLeft,
+        moveRight: game.controls.moveRight
+      },
+      rotation: {
+        y: game.controls.yawObject.rotation.y,
+        x: game.controls.pitchObject.rotation.x
+      }
     })
   })
-  game.appendTo('#container')
-  game.requestPointerLock('#container')
+  var container = document.querySelector('#container')
+  game.appendTo(container)
+  container.addEventListener('click', function() {
+    game.requestPointerLock(container)
+  })
   game.on('mousedown', function (pos) {
     if (erase) {
       game.setBlock(pos, 0)
@@ -55,7 +60,7 @@ emitter.on('id', function(id) {
 })
 
 emitter.on('settings', function(settings) {
-  window.game = createGame(settings)
+  window.game = game = createGame(settings)
   emitter.emit('generated', Date.now())
 })
 
@@ -63,18 +68,10 @@ emitter.on('update', function(updates) {
   if (!playerID) return
   var update = updates.positions[playerID]
   if (!update) return
-  game.controls.velocity.copy(update.velocity)
   var to = new game.THREE.Vector3()
   to.copy(update.position)
   var from = game.controls.yawObject.position
-  var distance = from.distanceTo(to)
-  if (distance > 20) {
-    from.copy(update.position)
-  } else if (distance > 0.01){
-    from.x += to.x * 0.1
-    from.y += to.y * 0.1
-    from.z += to.z * 0.1
-  }
+  from.copy(from.lerpSelf(to, 0.1))
 })
 
 var erase = true
