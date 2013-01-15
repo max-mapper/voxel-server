@@ -9,8 +9,8 @@ var skin = require('minecraft-skin')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-var playerID, game, horseGeometry, viking, horses = {}
-window.horses = horses
+var playerID, game, viking, players = {}
+window.players = players
 
 function createGame(options) {
   options.generateVoxelChunk = simplex({
@@ -58,26 +58,21 @@ function createGame(options) {
   new AverageLatency(emitter, function(latency) {
     game.emit('latency', latency)
   })
-  
-  var loader = new game.THREE.JSONLoader( true )
-  loader.load( "/horse.js", function( geometry ) {
-    window.horseGeometry = horseGeometry = geometry
-  })
-  
+    
   // three seems to throw errors if you add stuff too soon
   setTimeout(function() {
     emitter.on('update', function(updates) {
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
         if (player === playerID) return updateMyPosition(update.position)
-        updateHorsePosition(player, update.position)
+        updatePlayerPosition(player, update.position)
       })
     })
   }, 3000)
 
   emitter.on('leave', function(id) {
-    game.scene.remove(horses[id].mesh)
-    delete horses[id]
+    game.scene.remove(players[id].mesh)
+    delete players[id]
   })
 
   emitter.on('set', function (pos, val) {
@@ -113,19 +108,19 @@ function updateMyPosition(position) {
   from.copy(from.lerpSelf(to, 0.1))  
 }
 
-function updateHorsePosition(id, pos) {
-  var horse = horses[id]
-  if (!horse) {
-    var player = viking.createPlayerObject()
-    horses[id] = player
-    player.position.y = 10
-    game.scene.add(player)
+function updatePlayerPosition(id, pos) {
+  var player = players[id]
+  if (!player) {
+    var playerMesh = viking.createPlayerObject()
+    players[id] = playerMesh
+    playerMesh.position.y = 10
+    game.scene.add(playerMesh)
   } 
-  var p = horses[id].position
+  var p = players[id].position
   if (p.x === pos.x && p.y === pos.y && p.z === pos.z) return
-  horses[id].lastPositionTime = Date.now()
-  horses[id].position.copy(pos)
-  
+  players[id].lastPositionTime = Date.now()
+  players[id].position.copy(pos)
+
 }
 
 var erase = true
@@ -137,45 +132,3 @@ window.addEventListener('keydown', function (ev) {
 function ctrlToggle (ev) { erase = !ev.ctrlKey }
 window.addEventListener('keyup', ctrlToggle)
 window.addEventListener('keydown', ctrlToggle)
-
-function animateHorses() {
-  Object.keys(horses).map(function(horseID) {
-    var horse = horses[horseID]
-    if ( horse ) {
-      horse.tick()
-   }
-  })
-}
-
-function Horse() {
- this.radius = 600
- this.theta = 0
- this.duration = 1000
- this.keyframes = 15
- this.interpolation = this.duration / this.keyframes
- this.lastKeyframe = 0
- this.currentKeyframe = 0
- this.lastPositionTime = Date.now()
- 
- var mesh = new game.THREE.Mesh( horseGeometry, new game.THREE.MeshLambertMaterial( { color: 0x606060, morphTargets: true } ) )
- mesh.scale.set( 0.25, 0.25, 0.25 )
- game.scene.add( mesh )
- this.mesh = mesh
-}
-
-Horse.prototype.tick = function() {
-  if (Date.now() - this.lastPositionTime > 150) return
-  var time = Date.now() % this.duration
-  var keyframe = Math.floor( time / this.interpolation )
-  if ( keyframe != this.currentKeyframe ) {
-    this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 0
-    this.mesh.morphTargetInfluences[ this.currentKeyframe ] = 1
-    this.mesh.morphTargetInfluences[ keyframe ] = 0
-    this.lastKeyframe = this.currentKeyframe
-    this.currentKeyframe = keyframe
-  }
-  this.mesh.morphTargetInfluences[ keyframe ] = ( time % this.interpolation ) / this.interpolation
-  this.mesh.morphTargetInfluences[ this.lastKeyframe ] = 1 - this.mesh.morphTargetInfluences[ keyframe ]
-}
-
-
