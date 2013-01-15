@@ -51,7 +51,7 @@ setInterval(function() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     update.positions[key] = {
-      position: emitter.yaw.position
+      position: emitter.player.yawObject.position
     }
   })
   update.time = Date.now()
@@ -64,14 +64,8 @@ setInterval(function() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     var delta = Date.now() - emitter.lastUpdate
-    // emitter.scene.updateMatrixWorld()
-    // emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
-    
-    var before = emitter.yaw.position.z
     emitter.scene.updateMatrixWorld()
-    emitter.yaw.translateZ( -1 )
-    console.log(emitter.yaw.position.z - before, emitter.yaw.rotation.y, emitter.pitch.rotation.x)
-    
+    emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
     emitter.lastUpdate = Date.now()
   })
 }, 1000/66)
@@ -84,12 +78,15 @@ wss.on('connection', function(ws) {
   emitter.lastUpdate = Date.now()
   
   emitter.scene = new game.THREE.Scene()
-  emitter.pitch = new game.THREE.Object3D()
-  emitter.yaw = new game.THREE.Object3D()
-  emitter.yaw.position.copy(settings.startingPosition)
-  emitter.yaw.position.y = 10
-  emitter.yaw.add( emitter.pitch )
-  emitter.scene.add( emitter.yaw )
+  var playerOptions = {
+    pitchObject: new game.THREE.Object3D(),
+    yawObject: new game.THREE.Object3D(),
+    velocityObject: new game.THREE.Vector3()
+  }
+  emitter.player = playerPhysics(false, playerOptions)
+  emitter.player.enabled = true
+  emitter.player.yawObject.position.copy(settings.startingPosition)
+  emitter.scene.add( emitter.player.yawObject )
 
   console.log(id, 'joined')
   emitter.emit('id', id)
@@ -97,17 +94,17 @@ wss.on('connection', function(ws) {
   stream.once('end', leave)
   stream.once('error', leave)
   function leave() {
-    delete clients.id
+    delete clients[id]
     console.log(id, 'left')
     broadcast(id, 'leave', id)
   }
   emitter.on('generated', function(seq) {
     emitter.on('state', function(state) {
-      // Object.keys(state.movement).map(function(key) {
-      //   emitter.player[key] = state.movement[key]
-      // })
-      emitter.yaw.rotation.y = state.rotation.y
-      emitter.pitch.rotation.x = state.rotation.x
+      Object.keys(state.movement).map(function(key) {
+        emitter.player[key] = state.movement[key]
+      })
+      emitter.player.yawObject.rotation.y = state.rotation.y
+      emitter.player.pitchObject.rotation.x = state.rotation.x
     })
   })
   emitter.on('ping', function(data) {
