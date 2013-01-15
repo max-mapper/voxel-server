@@ -5,10 +5,11 @@ var engine = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
 var simplex = require('voxel-simplex-terrain')
 var AverageLatency = require('./latency')
+var skin = require('minecraft-skin')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 window.emitter = duplexEmitter(socket)
-var playerID, game, horseGeometry, horses = {}
+var playerID, game, horseGeometry, viking, horses = {}
 window.horses = horses
 
 function createGame(options) {
@@ -41,6 +42,8 @@ function createGame(options) {
   container.addEventListener('click', function() {
     game.requestPointerLock(container)
   })
+  
+  window.viking = viking = skin(game.THREE, 'viking.png')
 
   game.on('mousedown', function (pos) {
     if (erase) {
@@ -112,11 +115,16 @@ function updateMyPosition(position) {
 
 function updateHorsePosition(id, pos) {
   var horse = horses[id]
-  if (!horse) horses[id] = new Horse()
-  var p = horses[id].mesh.position
+  if (!horse) {
+    var player = viking.createPlayerObject()
+    horses[id] = player
+    player.position.y = 10
+    game.scene.add(player)
+  } 
+  var p = horses[id].position
   if (p.x === pos.x && p.y === pos.y && p.z === pos.z) return
   horses[id].lastPositionTime = Date.now()
-  horses[id].mesh.position.copy(pos)
+  horses[id].position.copy(pos)
   
 }
 
@@ -133,7 +141,7 @@ window.addEventListener('keydown', ctrlToggle)
 function animateHorses() {
   Object.keys(horses).map(function(horseID) {
     var horse = horses[horseID]
-    if ( horse.mesh ) {
+    if ( horse ) {
       horse.tick()
    }
   })
