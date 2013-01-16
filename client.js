@@ -2,15 +2,62 @@ var url = require('url')
 var voxel = require('voxel')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
+var MuxDemux = require('mux-demux')
+var Model = require('scuttlebutt/model')
 var duplexEmitter = require('duplex-emitter')
 var simplex = require('voxel-simplex-terrain')
 var AverageLatency = require('./latency')
 var skin = require('minecraft-skin')
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
-window.emitter = duplexEmitter(socket)
+var emitter
+var mdm = MuxDemux()
+mdm.on('connection', function (stream) {
+  if (stream.meta === "emitter") {
+    window.emitter = emitter = duplexEmitter(stream)
+
+    emitter.on('id', function(id) {
+      console.log('id', id)
+      playerID = id
+    })
+
+    emitter.on('settings', function(settings) {
+      window.game = game = createGame(settings)
+      emitter.emit('generated', Date.now())
+    })
+  }
+  if (stream.meta === "voxels") {
+
+    var voxels = new Model()
+    voxels.on('update', function(data, value) {
+      var val = data[1]
+      var pos = data[0].split('|')
+      var ckey = pos.splice(0,3).join('|')
+      pos = {x: +pos[0], y: +pos[1], z: +pos[2]}
+      var set = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
+      game.showChunk(game.voxels.chunks[ckey])
+    })
+
+    stream.pipe(voxels.createStream()).pipe(stream)
+  }
+})
+socket.pipe(mdm).pipe(socket)
+
 var playerID, game, viking, players = {}
 window.players = players
+
+function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
+  var chunk = game.voxels.chunks[ckey]
+  if (!chunk) return
+  var size = game.voxels.chunkSize
+  var vidx = v.x + v.y*size + v.z*size*size
+  if (typeof val !== 'undefined') {
+    var before = chunk.voxels[vidx]
+    chunk.voxels[vidx] = val
+  }
+  var v = chunk.voxels[vidx]
+  return v
+}
 
 function createGame(options) {
   options.generateVoxelChunk = simplex({
@@ -77,36 +124,10 @@ function createGame(options) {
     game.scene.remove(players[id].mesh)
     delete players[id]
   })
-
-  emitter.on('set', function (ckey, pos, val) {
-    voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
-    game.showChunk(game.voxels.chunks[ckey])
-  })
-
-  function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
-    var chunk = game.voxels.chunks[ckey]
-    if (!chunk) return false
-    var size = game.voxels.chunkSize
-    var vidx = v.x + v.y*size + v.z*size*size
-    if (typeof val !== 'undefined') {
-      chunk.voxels[vidx] = val
-    }
-    var v = chunk.voxels[vidx]
-    return v
-  }
   
   return game
 }
 
-emitter.on('id', function(id) {
-  console.log('id', id)
-  playerID = id
-})
-
-emitter.on('settings', function(settings) {
-  window.game = game = createGame(settings)
-  emitter.emit('generated', Date.now())
-})
 
 
 function updateMyPosition(position) {

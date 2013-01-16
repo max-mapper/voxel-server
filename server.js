@@ -3,6 +3,8 @@ var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
+var MuxDemux = require('mux-demux')
+var Model = require('scuttlebutt/model')
 var playerPhysics = require('player-physics')
 var path = require('path')
 var uuid = require('hat')
@@ -35,6 +37,7 @@ var settings = {
 var game = engine(settings)
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
+var voxelStore = new Model()
 var clients = {}
 
 function broadcast(id, cmd, arg1, arg2, arg3) {
@@ -71,7 +74,15 @@ setInterval(function() {
 
 wss.on('connection', function(ws) {
   var stream = websocket(ws)
-  var emitter = duplexEmitter(stream)
+  var mdm = MuxDemux()
+  stream.pipe(mdm).pipe(stream)
+  var emitterStream = mdm.createStream('emitter')
+  var emitter = duplexEmitter(emitterStream)
+
+  var voxelStream = mdm.createStream('voxels')
+  var storeStream = voxelStore.createStream()
+  storeStream.pipe(voxelStream).pipe(storeStream)
+  
   var id = uuid()
   clients[id] = emitter
   emitter.lastUpdate = Date.now()
@@ -117,7 +128,8 @@ wss.on('connection', function(ws) {
   emitter.on('set', function(ckey, pos, val) {
     var before = voxelAtChunkIndexAndVoxelVector(ckey, pos)
     var after = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
-    broadcast(false, 'set', ckey, pos, val)
+    var key = ckey + '|' + pos.x + '|' + pos.y + '|' + pos.z
+    voxelStore.set(key, val)
   })
 })
 

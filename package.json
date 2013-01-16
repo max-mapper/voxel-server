@@ -13,7 +13,9 @@
     "duplex-emitter": "0.1.6",
     "three": "0.54.5-dev",
     "voxel-simplex-terrain": "0.0.3",
-    "minecraft-skin": "0.0.1"
+    "minecraft-skin": "0.0.1",
+    "mux-demux": "3.4.0",
+    "scuttlebutt": "5.5.4"
   },
   "scripts": {
     "start": "node server.js"
