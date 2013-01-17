@@ -115,20 +115,18 @@ function createGame(options) {
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
         if (player === playerID) return updateMyPosition(update.position)
-        updatePlayerPosition(player, update.position)
+        updatePlayerPosition(player, update)
       })
     })
   }, 3000)
 
   emitter.on('leave', function(id) {
-    game.scene.remove(players[id].mesh)
+    // game.scene.remove(players[id].mesh)
     delete players[id]
   })
   
   return game
 }
-
-
 
 function updateMyPosition(position) {
   var to = new game.THREE.Vector3()
@@ -137,20 +135,20 @@ function updateMyPosition(position) {
   from.copy(from.lerpSelf(to, 0.1))  
 }
 
-function updatePlayerPosition(id, pos) {
+function updatePlayerPosition(id, update) {
+  var pos = update.position
   var player = players[id]
   if (!player) {
     var playerMesh = viking.createPlayerObject()
-    playerMesh.children[0].position.y = -18 // flush with floor
     players[id] = playerMesh
-    playerMesh.position.y = 10
+    playerMesh.children[0].position.y = 10
     game.scene.add(playerMesh)
-  } 
-  var p = players[id].position
-  if (p.x === pos.x && p.y === pos.y && p.z === pos.z) return
+  }
+  var playerMesh = players[id].children[0]
   players[id].lastPositionTime = Date.now()
-  players[id].position.copy(pos)
-
+  playerMesh.position.copy(pos)
+  playerMesh.position.y -= 23
+  playerMesh.rotation.y = update.rotation.y + (Math.PI / 2)
 }
 
 var erase = true

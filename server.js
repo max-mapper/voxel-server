@@ -54,7 +54,11 @@ setInterval(function() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     update.positions[key] = {
-      position: emitter.player.yawObject.position
+      position: emitter.player.yawObject.position,
+      rotation: {
+        y: emitter.player.yawObject.rotation.y,
+        x: emitter.player.pitchObject.rotation.x
+      }
     }
   })
   update.time = Date.now()
