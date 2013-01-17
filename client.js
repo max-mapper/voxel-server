@@ -8,6 +8,9 @@ var duplexEmitter = require('duplex-emitter')
 var simplex = require('voxel-simplex-terrain')
 var AverageLatency = require('./latency')
 var skin = require('minecraft-skin')
+var toolbar = require('toolbar')
+var blockSelector = toolbar({el: '#tools'})
+var currentMaterial = 1
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 var emitter
@@ -65,7 +68,8 @@ function createGame(options) {
     scaleFactor: options.scaleFactor,
     chunkDistance: options.chunkDistance,
     getMaterialIndex: function (seed, simplex, width, x, y, z) {
-      return y > 0 ? 0 : (y == 0 ? 1 : 2);
+      if (x*x + y*y + z*z > 30*30) return 0
+      return 1
     }
   })
   game = engine(options)
@@ -92,7 +96,13 @@ function createGame(options) {
   })
   
   window.viking = viking = skin(game.THREE, 'viking.png')
-
+  game.controls.pitchObject.rotation.x = -1.5;
+  
+  blockSelector.on('select', function(material) {
+    var idx = game.materials.indexOf(material)
+    if (idx > -1) currentMaterial = idx + 1
+  })
+  
   game.on('mousedown', function (pos) {
     if (erase) {
       var voxVec = this.voxels.voxelVector(pos)
@@ -101,7 +111,7 @@ function createGame(options) {
     } else {
       var newBlock = game.checkBlock(pos)
       if (!newBlock) return
-      emitter.emit('set', newBlock.chunkIndex, newBlock.voxelVector, 1)
+      emitter.emit('set', newBlock.chunkIndex, newBlock.voxelVector, currentMaterial)
     }
   })
   

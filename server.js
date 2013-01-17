@@ -18,18 +18,19 @@ var scaleFactor = 10
 var seed = process.argv[2] || uuid()
 
 function getMaterialIndex(seed, simplex, width, x, y, z) {
-  return y > 0 ? 0 : (y == 0 ? 1 : 2);
+  if (x*x + y*y + z*z > 30*30) return 0
+  return 1
 }
 
 var generator = simplex({seed: seed, scaleFactor: scaleFactor, chunkDistance: chunkDistance, getMaterialIndex: getMaterialIndex})
 var settings = {
   generateVoxelChunk: generator,
   texturePath: './textures/',
-  materials: ['grass', 'obsidian', 'dirt', 'whitewool', 'crate', 'brick'],
+  materials: ['grass', 'brick', 'dirt', 'obsidian', 'snow'],
   cubeSize: 25,
   chunkSize: chunkSize,
   chunkDistance: chunkDistance,
-  startingPosition: {x: 0, y: 100, z: 0},
+  startingPosition: {x: 0, y: 1000, z: 0},
   worldOrigin: {x: 0, y: 0, z: 0},
   scaleFactor: scaleFactor,
   controlOptions: {jump: 6}

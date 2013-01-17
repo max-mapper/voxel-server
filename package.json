@@ -15,7 +15,8 @@
     "hat": "0.0.3",
     "duplex-emitter": "0.1.6",
     "mux-demux": "3.4.0",
-    "scuttlebutt": "5.5.4"
+    "scuttlebutt": "5.5.4",
+    "toolbar": "0.0.2"
   },
   "scripts": {
     "start": "node server.js"
