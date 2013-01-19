@@ -26,7 +26,7 @@ var generator = simplex({seed: seed, scaleFactor: scaleFactor, chunkDistance: ch
 var settings = {
   generateVoxelChunk: generator,
   texturePath: './textures/',
-  materials: ['grass', 'brick', 'dirt', 'obsidian', 'snow'],
+  materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
   cubeSize: 25,
   chunkSize: chunkSize,
   chunkDistance: chunkDistance,

@@ -3,7 +3,7 @@
   "subdomain": "voxel",
   "version": "0.0.1-7",
   "dependencies": {
-    "voxel-engine": "0.2.8",
+    "voxel-engine": "0.2.9",
     "voxel": "0.1.0",
     "player-physics": "0.0.7",
     "three": "0.54.0",
