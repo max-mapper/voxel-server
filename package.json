@@ -3,9 +3,9 @@
   "subdomain": "voxel",
   "version": "0.0.1-7",
   "dependencies": {
-    "voxel-engine": "0.2.9",
-    "voxel": "0.1.0",
-    "player-physics": "0.0.7",
+    "voxel-engine": "0.3.2",
+    "voxel": "0.1.1",
+    "player-physics": "0.0.10",
     "three": "0.54.0",
     "voxel-simplex-terrain": "0.0.3",
     "minecraft-skin": "0.0.1",

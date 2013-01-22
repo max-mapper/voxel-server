@@ -16,6 +16,7 @@ var chunkSize = 32
 var chunkDistance = 1
 var scaleFactor = 10
 var seed = process.argv[2] || uuid()
+var fakeLag = 100
 
 function getMaterialIndex(seed, simplex, width, x, y, z) {
   if (x*x + y*y + z*z > 30*30) return 0
@@ -56,13 +57,14 @@ setInterval(function() {
     var emitter = clients[key]
     update.positions[key] = {
       position: emitter.player.yawObject.position,
+      velocity: emitter.player.velocity,
       rotation: {
-        y: emitter.player.yawObject.rotation.y,
-        x: emitter.player.pitchObject.rotation.x
-      }
+        x: emitter.player.pitchObject.rotation.x,
+        y: emitter.player.yawObject.rotation.y
+      },
+      seq: emitter.player.lastProcessedSeq
     }
   })
-  update.time = Date.now()
   broadcast(false, 'update', update)
 }, 1000/22)
 
@@ -72,7 +74,10 @@ setInterval(function() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     var delta = Date.now() - emitter.lastUpdate
-    emitter.player.tick(delta, game.updatePlayerPhysics.bind(game))
+    emitter.player.tick(delta, function(controls) {
+      var bbox = game.playerAABB(emitter.player.yawObject.position)
+      game.updatePlayerPhysics(bbox, controls)
+    })
     emitter.lastUpdate = Date.now()
   })
 }, 1000/66)
@@ -101,6 +106,7 @@ wss.on('connection', function(ws) {
   emitter.player = playerPhysics(false, playerOptions)
   emitter.player.enabled = true
   emitter.player.yawObject.position.copy(settings.startingPosition)
+  emitter.player.lastProcessedSeq = 0
   emitter.scene.add( emitter.player.yawObject )
 
   console.log(id, 'joined')
@@ -115,15 +121,20 @@ wss.on('connection', function(ws) {
   }
   emitter.on('generated', function(seq) {
     emitter.on('jump', function() {
-      emitter.player.emit('command', 'jump')
+      setTimeout(function() {
+        emitter.player.emit('command', 'jump')        
+      }, fakeLag)
     })
     emitter.on('state', function(state) {
-      Object.keys(state.movement).map(function(key) {
-        emitter.player[key] = state.movement[key]
-      })
-      emitter.player.yawObject.rotation.y = state.rotation.y
-      emitter.player.pitchObject.rotation.x = state.rotation.x
-      emitter.scene.updateMatrixWorld()
+      setTimeout(function() {
+        Object.keys(state.movement).map(function(key) {
+          emitter.player[key] = state.movement[key]
+        })
+        emitter.player.yawObject.rotation.y = state.rotation.y
+        emitter.player.pitchObject.rotation.x = state.rotation.x
+        emitter.scene.updateMatrixWorld()
+        emitter.player.lastProcessedSeq = state.seq
+      }, fakeLag)
     })
   })
   emitter.on('ping', function(data) {

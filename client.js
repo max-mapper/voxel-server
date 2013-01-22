@@ -2,11 +2,12 @@ var url = require('url')
 var voxel = require('voxel')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
+var playerPhysics = require('player-physics')
 var MuxDemux = require('mux-demux')
 var Model = require('scuttlebutt/model')
 var duplexEmitter = require('duplex-emitter')
 var simplex = require('voxel-simplex-terrain')
-var AverageLatency = require('./latency')
+// var AverageLatency = require('./latency')
 var skin = require('minecraft-skin')
 var toolbar = require('toolbar')
 var blockSelector = toolbar({el: '#tools'})
@@ -14,10 +15,12 @@ var currentMaterial = 1
 
 window.socket = websocket('ws://' + url.parse(window.location.href).host)
 var emitter
+var connected = false
 var mdm = MuxDemux()
 mdm.on('connection', function (stream) {
   if (stream.meta === "emitter") {
     window.emitter = emitter = duplexEmitter(stream)
+    connected = true
 
     emitter.on('id', function(id) {
       console.log('id', id)
@@ -45,8 +48,54 @@ mdm.on('connection', function (stream) {
   }
 })
 socket.pipe(mdm).pipe(socket)
+socket.on('end', function() { connected = false })
 
-var playerID, game, viking, players = {}
+var playerID, game, viking, players = {}, lastProcessedSeq
+window.localInputs = []
+
+function storeServerUpdate(update) {
+  discardOldLocalInputs(update)
+  var controlOptions = {
+    yawObject: new game.THREE.Object3D(),
+    pitchObject: new game.THREE.Object3D(),
+    velocity: new game.THREE.Vector3()
+  }
+  controlOptions.yawObject.rotation.y = update.rotation.y
+  controlOptions.pitchObject.rotation.x = update.rotation.x
+  controlOptions.yawObject.position.copy(update.position)
+  controlOptions.velocity.copy(update.velocity)
+  var physics = playerPhysics(false, controlOptions)
+  
+  for (i = 0; i < localInputs.length; i++) {
+    var input = localInputs[i]
+    var delta = input.seq - lastProcessedSeq
+    Object.keys(input.movement).map(function(key) {
+      physics[key] = input.movement[key]
+    })
+    physics.tick(delta, function() {
+      var bbox = game.playerAABB(physics.yawObject.position)
+      game.updatePlayerPhysics(bbox, physics)
+    })
+    lastProcessedSeq = input.seq
+  }
+  
+  updateMyPosition(physics.yawObject.position)
+}
+
+function discardOldLocalInputs(update) {
+  var newestUnprocessedInputIndex = 0
+  for (i = 0; i < localInputs.length; i++) {
+    if (localInputs[i].seq === update.seq) {
+      newestUnprocessedInputIndex = i
+      var lastInput = localInputs[i-1]
+      if (lastInput) lastProcessedSeq = lastInput.seq
+      else lastProcessedSeq = localInputs[i].seq
+      break
+    }
+  }
+  localInputs.splice(0, newestUnprocessedInputIndex)
+}
+
 window.players = players
 
 function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
@@ -75,7 +124,12 @@ function createGame(options) {
   game = engine(options)
   game.controls.on('command', function(command) {
     if (command === 'jump') return emitter.emit('jump')
-    emitter.emit('state', {
+  })
+  
+  setInterval(function() {
+    if (!connected) return
+    var state = {
+      seq: Date.now(),
       movement: {
         moveForward: game.controls.moveForward,
         moveBackward: game.controls.moveBackward,
@@ -86,8 +140,10 @@ function createGame(options) {
         y: game.controls.yawObject.rotation.y,
         x: game.controls.pitchObject.rotation.x
       }
-    })
-  })
+    }
+    emitter.emit('state', state)
+    localInputs.push(state)
+  }, 1000/22)
 
   var container = document.querySelector('#container')
   game.appendTo(container)
@@ -115,23 +171,23 @@ function createGame(options) {
     }
   })
   
-  new AverageLatency(emitter, function(latency) {
-    game.emit('latency', latency)
-  })
+  // new AverageLatency(emitter, function(latency) {
+  //   game.latency = latency
+  // })
     
   // three seems to throw errors if you add stuff too soon
   setTimeout(function() {
-    emitter.on('update', function(updates) {
+    emitter.on('update', function(updates) {      
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
-        if (player === playerID) return updateMyPosition(update.position)
+        if (player === playerID) return storeServerUpdate(update)
         updatePlayerPosition(player, update)
       })
     })
   }, 3000)
 
   emitter.on('leave', function(id) {
-    // game.scene.remove(players[id].mesh)
+    // game.scene.remove(players[id].mesh) <- this doesnt work for some reason
     delete players[id]
   })
   
