@@ -50,50 +50,55 @@ mdm.on('connection', function (stream) {
 socket.pipe(mdm).pipe(socket)
 socket.on('end', function() { connected = false })
 
-var playerID, game, viking, players = {}, lastProcessedSeq
+var playerID, game, viking, players = {}, lastProcessedSeq = 0
 window.localInputs = []
 
 function storeServerUpdate(update) {
   discardOldLocalInputs(update)
-  var controlOptions = {
-    yawObject: new game.THREE.Object3D(),
-    pitchObject: new game.THREE.Object3D(),
-    velocity: new game.THREE.Vector3()
-  }
-  controlOptions.yawObject.rotation.y = update.rotation.y
-  controlOptions.pitchObject.rotation.x = update.rotation.x
-  controlOptions.yawObject.position.copy(update.position)
-  controlOptions.velocity.copy(update.velocity)
-  var physics = playerPhysics(false, controlOptions)
-  
+  // replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed.
+  var pos = game.controls.yawObject.position
+  var before = pos.clone()
+  pos.copy(update.position)
+  var distance = pos.distanceTo(update.position)
+  if (distance > 20) return console.log(distance)
+
+  updatePlayerPhysics(game.controls, game.scene, function(delta, input) {
+    Object.keys(input.movement).map(function(key) {
+      game.controls[key] = input.movement[key]
+    })    
+    game.controls.tick(delta, function() {
+      var bbox = game.playerAABB()
+      var beforeUpdate = pos.clone()
+      game.scene.updateMatrixWorld()
+      game.updatePlayerPhysics(bbox, game.controls)
+      console.log(beforeUpdate.distanceTo(pos))
+    })
+  })
+  var target = pos.clone()
+  pos.copy(before)
+  lerpMe(target)
+}
+
+function updatePlayerPhysics(physics, scene, cb) {
   for (i = 0; i < localInputs.length; i++) {
     var input = localInputs[i]
     var delta = input.seq - lastProcessedSeq
-    Object.keys(input.movement).map(function(key) {
-      physics[key] = input.movement[key]
-    })
-    physics.tick(delta, function() {
-      var bbox = game.playerAABB(physics.yawObject.position)
-      game.updatePlayerPhysics(bbox, physics)
-    })
+    if (delta < 0) return
+    if (cb) cb(delta, input)
     lastProcessedSeq = input.seq
   }
-  
-  updateMyPosition(physics.yawObject.position)
 }
 
 function discardOldLocalInputs(update) {
-  var newestUnprocessedInputIndex = 0
+  var lastProcessedIndex = 0
   for (i = 0; i < localInputs.length; i++) {
     if (localInputs[i].seq === update.seq) {
-      newestUnprocessedInputIndex = i
-      var lastInput = localInputs[i-1]
-      if (lastInput) lastProcessedSeq = lastInput.seq
-      else lastProcessedSeq = localInputs[i].seq
+      lastProcessedIndex = i
+      lastProcessedSeq = update.seq
       break
     }
   }
-  localInputs.splice(0, newestUnprocessedInputIndex)
+  localInputs.splice(0, lastProcessedIndex + 1)
 }
 
 window.players = players
@@ -104,7 +109,6 @@ function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
   var size = game.voxels.chunkSize
   var vidx = v.x + v.y*size + v.z*size*size
   if (typeof val !== 'undefined') {
-    var before = chunk.voxels[vidx]
     chunk.voxels[vidx] = val
   }
   var v = chunk.voxels[vidx]
@@ -122,20 +126,25 @@ function createGame(options) {
     }
   })
   game = engine(options)
-  game.controls.on('command', function(command) {
+  game.fakeControls = {
+    moveForward: false,
+    moveBackward: false,
+    moveLeft: false,
+    moveRight: false
+  }
+  game.controls.removeAllListeners('command')
+  game.controls.on('command', function(command, setting) {
+    if (!connected) return
     if (command === 'jump') return emitter.emit('jump')
+    game.fakeControls[command] = setting
   })
   
   setInterval(function() {
     if (!connected) return
+    if (!game.controls.enabled) return
     var state = {
       seq: Date.now(),
-      movement: {
-        moveForward: game.controls.moveForward,
-        moveBackward: game.controls.moveBackward,
-        moveLeft: game.controls.moveLeft,
-        moveRight: game.controls.moveRight
-      },
+      movement: game.fakeControls,
       rotation: {
         y: game.controls.yawObject.rotation.y,
         x: game.controls.pitchObject.rotation.x
@@ -143,6 +152,9 @@ function createGame(options) {
     }
     emitter.emit('state', state)
     localInputs.push(state)
+    Object.keys(state.movement).map(function(key) {
+      game.controls[key] = state.movement[key]
+    })
   }, 1000/22)
 
   var container = document.querySelector('#container')
@@ -184,7 +196,7 @@ function createGame(options) {
         updatePlayerPosition(player, update)
       })
     })
-  }, 3000)
+  }, 1000)
 
   emitter.on('leave', function(id) {
     // game.scene.remove(players[id].mesh) <- this doesnt work for some reason
@@ -194,7 +206,7 @@ function createGame(options) {
   return game
 }
 
-function updateMyPosition(position) {
+function lerpMe(position) {
   var to = new game.THREE.Vector3()
   to.copy(position)
   var from = game.controls.yawObject.position

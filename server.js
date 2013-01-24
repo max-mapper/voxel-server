@@ -76,7 +76,7 @@ setInterval(function() {
     var delta = Date.now() - emitter.lastUpdate
     emitter.player.tick(delta, function(controls) {
       var bbox = game.playerAABB(emitter.player.yawObject.position)
-      game.updatePlayerPhysics(bbox, controls)
+      game.updatePlayerPhysics(bbox, emitter.player)
     })
     emitter.lastUpdate = Date.now()
   })
