@@ -1,13 +1,11 @@
 {
   "name": "voxel-server",
   "subdomain": "voxel",
-  "version": "0.0.1-7",
+  "version": "0.0.1",
   "dependencies": {
-    "voxel-engine": "0.3.3",
-    "voxel": "0.1.1",
-    "player-physics": "0.0.11",
+    "voxel-engine": "0.5.1",
+    "player-physics": "0.1.0",
     "three": "0.54.0",
-    "voxel-simplex-terrain": "0.0.3",
     "minecraft-skin": "0.0.1",
     "websocket-stream": "0.0.4",
     "ws": "0.4.25",

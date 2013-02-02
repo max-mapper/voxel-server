@@ -1,131 +1,73 @@
 var url = require('url')
-var voxel = require('voxel')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
 var playerPhysics = require('player-physics')
 var MuxDemux = require('mux-demux')
-var Model = require('scuttlebutt/model')
+var Scuttlebutt = require('scuttlebutt/model')
 var duplexEmitter = require('duplex-emitter')
-var simplex = require('voxel-simplex-terrain')
-// var AverageLatency = require('./latency')
 var skin = require('minecraft-skin')
 var toolbar = require('toolbar')
 var blockSelector = toolbar({el: '#tools'})
+
+var emitter, playerID, game, viking
+var players = {}, lastProcessedSeq = 0
+var localInputs = [], connected = false, erase = true
 var currentMaterial = 1
 
-window.socket = websocket('ws://' + url.parse(window.location.href).host)
-var emitter
-var connected = false
-var mdm = MuxDemux()
-mdm.on('connection', function (stream) {
-  if (stream.meta === "emitter") {
-    window.emitter = emitter = duplexEmitter(stream)
-    connected = true
-
-    emitter.on('id', function(id) {
-      console.log('id', id)
-      playerID = id
-    })
-
-    emitter.on('settings', function(settings) {
-      window.game = game = createGame(settings)
-      emitter.emit('generated', Date.now())
-    })
-  }
-  if (stream.meta === "voxels") {
-
-    var voxels = new Model()
-    voxels.on('update', function(data, value) {
-      var val = data[1]
-      var pos = data[0].split('|')
-      var ckey = pos.splice(0,3).join('|')
-      pos = {x: +pos[0], y: +pos[1], z: +pos[2]}
-      var set = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
-      game.showChunk(game.voxels.chunks[ckey])
-    })
-
-    stream.pipe(voxels.createStream()).pipe(stream)
-  }
+window.addEventListener('keydown', function (ev) {
+  if (ev.keyCode === 'X'.charCodeAt(0)) erase = !erase
 })
-socket.pipe(mdm).pipe(socket)
+function ctrlToggle (ev) { erase = !ev.ctrlKey }
+window.addEventListener('keyup', ctrlToggle)
+window.addEventListener('keydown', ctrlToggle)
+
+var socket = websocket('ws://' + url.parse(window.location.href).host)
 socket.on('end', function() { connected = false })
+connectToGameServer(socket)
 
-var playerID, game, viking, players = {}, lastProcessedSeq = 0
-window.localInputs = []
+function connectToGameServer(socket) {
+  // take our websocket and use muxdemux to create
+  // two streams from it
+  var mdm = MuxDemux()
+  socket.pipe(mdm).pipe(socket)
+  mdm.on('connection', function (stream) {
+    if (stream.meta === "emitter") {
+      emitter = emitter = duplexEmitter(stream)
+      connected = true
 
-function storeServerUpdate(update) {
-  discardOldLocalInputs(update)
-  // replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed.
-  var pos = game.controls.yawObject.position
-  var before = pos.clone()
-  pos.copy(update.position)
-  var distance = pos.distanceTo(update.position)
-  if (distance > 20) return console.log(distance)
+      emitter.on('id', function(id) {
+        console.log('id', id)
+        playerID = id
+      })
 
-  updatePlayerPhysics(game.controls, game.scene, function(delta, input) {
-    Object.keys(input.movement).map(function(key) {
-      game.controls[key] = input.movement[key]
-    })    
-    game.controls.tick(delta, function() {
-      var bbox = game.playerAABB()
-      var beforeUpdate = pos.clone()
-      game.scene.updateMatrixWorld()
-      game.updatePlayerPhysics(bbox, game.controls)
-      console.log(beforeUpdate.distanceTo(pos))
-    })
-  })
-  var target = pos.clone()
-  pos.copy(before)
-  lerpMe(target)
-}
-
-function updatePlayerPhysics(physics, scene, cb) {
-  for (i = 0; i < localInputs.length; i++) {
-    var input = localInputs[i]
-    var delta = input.seq - lastProcessedSeq
-    if (delta < 0) return
-    if (cb) cb(delta, input)
-    lastProcessedSeq = input.seq
-  }
-}
-
-function discardOldLocalInputs(update) {
-  var lastProcessedIndex = 0
-  for (i = 0; i < localInputs.length; i++) {
-    if (localInputs[i].seq === update.seq) {
-      lastProcessedIndex = i
-      lastProcessedSeq = update.seq
-      break
+      emitter.on('settings', function(settings) {
+        window.game = game = createGame(settings)
+        emitter.emit('generated', Date.now())
+      })
     }
-  }
-  localInputs.splice(0, lastProcessedIndex + 1)
-}
+    if (stream.meta === "voxels") {
 
-window.players = players
+      var voxels = new Scuttlebutt()
 
-function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
-  var chunk = game.voxels.chunks[ckey]
-  if (!chunk) return
-  var size = game.voxels.chunkSize
-  var vidx = v.x + v.y*size + v.z*size*size
-  if (typeof val !== 'undefined') {
-    chunk.voxels[vidx] = val
-  }
-  var v = chunk.voxels[vidx]
-  return v
+      // fires when server sends us voxel edits
+      voxels.on('update', function(data, value) {
+        var val = data[1]
+        var pos = data[0].split('|')
+        var ckey = pos.splice(0,3).join('|')
+        pos = {x: +pos[0], y: +pos[1], z: +pos[2]}
+        var set = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
+        game.showChunk(game.voxels.chunks[ckey])
+      })
+
+      stream.pipe(voxels.createStream()).pipe(stream)
+    }
+  })
 }
 
 function createGame(options) {
-  options.generateVoxelChunk = simplex({
-    seed: options.seed,
-    scaleFactor: options.scaleFactor,
-    chunkDistance: options.chunkDistance,
-    getMaterialIndex: function (seed, simplex, width, x, y, z) {
-      if (x*x + y*y + z*z > 30*30) return 0
-      return 1
-    }
-  })
+  options.controlsDisabled = false
   game = engine(options)
+
   game.fakeControls = {
     moveForward: false,
     moveBackward: false,
@@ -133,6 +75,7 @@ function createGame(options) {
     moveRight: false
   }
   game.controls.removeAllListeners('command')
+  
   game.controls.on('command', function(command, setting) {
     if (!connected) return
     if (command === 'jump') return emitter.emit('jump')
@@ -163,7 +106,7 @@ function createGame(options) {
     game.requestPointerLock(container)
   })
   
-  window.viking = viking = skin(game.THREE, 'viking.png')
+  var viking = skin(game.THREE, 'viking.png')
   game.controls.pitchObject.rotation.x = -1.5;
   
   blockSelector.on('select', function(material) {
@@ -183,17 +126,13 @@ function createGame(options) {
     }
   })
   
-  // new AverageLatency(emitter, function(latency) {
-  //   game.latency = latency
-  // })
-    
-  // three seems to throw errors if you add stuff too soon
+  // setTimeout is because three.js seems to throw errors if you add stuff too soon
   setTimeout(function() {
     emitter.on('update', function(updates) {      
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
-        if (player === playerID) return storeServerUpdate(update)
-        updatePlayerPosition(player, update)
+        if (player === playerID) return storeServerUpdate(update) // local player
+        updatePlayerPosition(player, update) // other players
       })
     })
   }, 1000)
@@ -204,6 +143,67 @@ function createGame(options) {
   })
   
   return game
+}
+
+function storeServerUpdate(update) {
+  // goal (from http://gafferongames.com/networking-for-game-programmers/what-every-programmer-needs-to-know-about-game-networking/): 
+  // "replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed."
+  discardOldLocalInputs(update)
+  var pos = game.controls.yawObject.position
+  var before = pos.clone()
+  pos.copy(update.position)
+  var distance = pos.distanceTo(update.position)
+  if (distance > 20) return console.log(distance)
+
+  loopOverNewLocalInputs(game.controls, game.scene, function(delta, input) {
+    Object.keys(input.movement).map(function(key) {
+      game.controls[key] = input.movement[key]
+    })    
+    game.controls.tick(delta, function() {
+      var bbox = game.playerAABB()
+      var beforeUpdate = pos.clone()
+      game.scene.updateMatrixWorld() // not sure if this is actually needed or not
+      game.updatePlayerPhysics(bbox, game.controls)
+      console.log(beforeUpdate.distanceTo(pos))
+    })
+  })
+  var target = pos.clone()
+  pos.copy(before)
+  lerpMe(target)
+}
+
+function loopOverNewLocalInputs(physics, scene, cb) {
+  for (i = 0; i < localInputs.length; i++) {
+    var input = localInputs[i]
+    var delta = input.seq - lastProcessedSeq
+    if (delta < 0) return
+    if (cb) cb(delta, input)
+    lastProcessedSeq = input.seq
+  }
+}
+
+function discardOldLocalInputs(update) {
+  var lastProcessedIndex = 0
+  for (i = 0; i < localInputs.length; i++) {
+    if (localInputs[i].seq === update.seq) {
+      lastProcessedIndex = i
+      lastProcessedSeq = update.seq
+      break
+    }
+  }
+  localInputs.splice(0, lastProcessedIndex + 1)
+}
+
+function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
+  var chunk = game.voxels.chunks[ckey]
+  if (!chunk) return
+  var size = game.voxels.chunkSize
+  var vidx = v.x + v.y*size + v.z*size*size
+  if (typeof val !== 'undefined') {
+    chunk.voxels[vidx] = val
+  }
+  var v = chunk.voxels[vidx]
+  return v
 }
 
 function lerpMe(position) {
@@ -228,13 +228,3 @@ function updatePlayerPosition(id, update) {
   playerMesh.position.y -= 23
   playerMesh.rotation.y = update.rotation.y + (Math.PI / 2)
 }
-
-var erase = true
-window.addEventListener('keydown', function (ev) {
-  if (ev.keyCode === 'X'.charCodeAt(0)) {
-    erase = !erase
-  }
-})
-function ctrlToggle (ev) { erase = !ev.ctrlKey }
-window.addEventListener('keyup', ctrlToggle)
-window.addEventListener('keydown', ctrlToggle)
