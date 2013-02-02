@@ -13,6 +13,8 @@ make
 npm start
 ```
 
+if you make any changes to client.js you have to run `make` and reload the browser. if you make changes to `server.js` you have to restart the server
+
 ## explanation
 
 based on bits and pieces of:
