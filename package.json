@@ -7,7 +7,7 @@
     "player-physics": "0.1.0",
     "three": "0.54.0",
     "minecraft-skin": "0.0.1",
-    "websocket-stream": "0.0.4",
+    "websocket-stream": "0.0.5",
     "ws": "0.4.25",
     "ecstatic": "0.3.0",
     "hat": "0.0.3",
