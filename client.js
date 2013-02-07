@@ -9,7 +9,7 @@ var skin = require('minecraft-skin')
 var toolbar = require('toolbar')
 var blockSelector = toolbar({el: '#tools'})
 
-var emitter, playerID, game, viking
+var emitter, playerID, game
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
 var currentMaterial = 1
@@ -106,7 +106,8 @@ function createGame(options) {
     game.requestPointerLock(container)
   })
   
-  var viking = skin(game.THREE, 'viking.png')
+  game.viking = skin(game.THREE, 'viking.png')
+  console.log("viking4")
   game.controls.pitchObject.rotation.x = -1.5;
   
   blockSelector.on('select', function(material) {
@@ -217,7 +218,7 @@ function updatePlayerPosition(id, update) {
   var pos = update.position
   var player = players[id]
   if (!player) {
-    var playerMesh = viking.createPlayerObject()
+    var playerMesh = game.viking.createPlayerObject()
     players[id] = playerMesh
     playerMesh.children[0].position.y = 10
     game.scene.add(playerMesh)
