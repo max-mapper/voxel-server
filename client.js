@@ -132,7 +132,8 @@ function createGame(options) {
     emitter.on('update', function(updates) {      
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
-        if (player === playerID) return storeServerUpdate(update) // local player
+        if (player === playerID) return storeServerUpdate(update) // local player respecting server as authoritative positional data
+        positionPlayerBasedOnNewLocalInputs(); // local player client input prediction
         updatePlayerPosition(player, update) // other players
       })
     })
@@ -146,16 +147,7 @@ function createGame(options) {
   return game
 }
 
-function storeServerUpdate(update) {
-  // goal (from http://gafferongames.com/networking-for-game-programmers/what-every-programmer-needs-to-know-about-game-networking/): 
-  // "replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed."
-  discardOldLocalInputs(update)
-  var pos = game.controls.yawObject.position
-  var before = pos.clone()
-  pos.copy(update.position)
-  var distance = pos.distanceTo(update.position)
-  if (distance > 20) return console.log(distance)
-
+function positionPlayerBasedOnNewLocalInputs() {
   loopOverNewLocalInputs(game.controls, game.scene, function(delta, input) {
     Object.keys(input.movement).map(function(key) {
       game.controls[key] = input.movement[key]
@@ -171,6 +163,17 @@ function storeServerUpdate(update) {
   var target = pos.clone()
   pos.copy(before)
   lerpMe(target)
+}
+
+function storeServerUpdate(update) {
+  // goal (from http://gafferongames.com/networking-for-game-programmers/what-every-programmer-needs-to-know-about-game-networking/): 
+  // "replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed."
+  discardOldLocalInputs(update)
+  var pos = game.controls.yawObject.position
+  var before = pos.clone()
+  pos.copy(update.position)
+  var distance = pos.distanceTo(update.position)
+  if (distance > 20) return console.log(distance)
 }
 
 function loopOverNewLocalInputs(physics, scene, cb) {
