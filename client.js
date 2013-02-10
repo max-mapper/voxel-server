@@ -2,14 +2,14 @@ var url = require('url')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
 var playerPhysics = require('player-physics')
-var MuxDemux = require('mux-demux')
-var Scuttlebutt = require('scuttlebutt/model')
 var duplexEmitter = require('duplex-emitter')
 var skin = require('minecraft-skin')
+var walk = require('voxel-walk')
 var toolbar = require('toolbar')
+var crunch = require('voxel-crunch')
 var blockSelector = toolbar({el: '#tools'})
 
-var emitter, playerID, game
+var emitter, playerID
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
 var currentMaterial = 1
@@ -27,67 +27,35 @@ socket.on('end', function() { connected = false })
 connectToGameServer(socket)
 
 function connectToGameServer(socket) {
-  // take our websocket and use muxdemux to create
-  // two streams from it
-  var mdm = MuxDemux()
-  socket.pipe(mdm).pipe(socket)
-  mdm.on('connection', function (stream) {
-    if (stream.meta === "emitter") {
-      emitter = emitter = duplexEmitter(stream)
-      connected = true
 
-      emitter.on('id', function(id) {
-        console.log('id', id)
-        playerID = id
-      })
+  emitter = duplexEmitter(socket)
+  connected = true
 
-      emitter.on('settings', function(settings) {
-        window.game = game = createGame(settings)
-        emitter.emit('generated', Date.now())
-      })
-    }
-    if (stream.meta === "voxels") {
+  emitter.on('id', function(id) {
+    console.log('id', id)
+    playerID = id
+  })
 
-      var voxels = new Scuttlebutt()
+  emitter.on('settings', function(settings) {
+    window.game = game = createGame(settings)
+    emitter.emit('generated', Date.now())
+  })
 
-      // fires when server sends us voxel edits
-      voxels.on('update', function(data, value) {
-        var val = data[1]
-        var pos = data[0].split('|')
-        var ckey = pos.splice(0,3).join('|')
-        pos = {x: +pos[0], y: +pos[1], z: +pos[2]}
-        var set = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
-        game.showChunk(game.voxels.chunks[ckey])
-      })
-
-      stream.pipe(voxels.createStream()).pipe(stream)
-    }
+  // fires when server sends us voxel edits
+  emitter.on('set', function(pos, val) {
+    game.setBlock(pos, val)
   })
 }
 
 function createGame(options) {
   options.controlsDisabled = false
-  game = engine(options)
+  window.game = engine(options)
 
-  game.fakeControls = {
-    moveForward: false,
-    moveBackward: false,
-    moveLeft: false,
-    moveRight: false
-  }
-  
-  game.controls.on('command', function(command, setting) {
-    if (!connected) return
-    if (command === 'jump') return emitter.emit('jump')
-    game.fakeControls[command] = setting
-  })
-  
   setInterval(function() {
     if (!connected) return
     if (!game.controls.enabled) return
     var state = {
       position: game.controls.yawObject.position,
-      movement: game.fakeControls,
       rotation: {
         y: game.controls.yawObject.rotation.y,
         x: game.controls.pitchObject.rotation.x
@@ -109,16 +77,23 @@ function createGame(options) {
   })
   
   game.on('mousedown', function (pos) {
+    pos = {x: pos.x, y: pos.y, z: pos.z}
+    var size = game.cubeSize
     if (erase) {
-      var voxVec = this.voxels.voxelVector(pos)
-      var cid = this.voxels.chunkAtPosition(pos).join('|')
-      emitter.emit('set', cid, voxVec, 0)
+      emitter.emit('set', pos, 0)
     } else {
       var newBlock = game.checkBlock(pos)
       if (!newBlock) return
-      emitter.emit('set', newBlock.chunkIndex, newBlock.voxelVector, currentMaterial)
+      emitter.emit('set', newBlock.position, currentMaterial)
     }
   })
+  
+  // game.on('tick', function(delta) {
+  //   Object.keys(players).map(function(player) {
+  //     var now = Date.now()
+  //     walk.render(players[player], now / 1000)
+  //   })
+  // })
   
   // setTimeout is because three.js seems to throw errors if you add stuff too soon
   setTimeout(function() {
@@ -132,6 +107,7 @@ function createGame(options) {
   }, 1000)
 
   emitter.on('leave', function(id) {
+    if (!players[id]) return
     game.scene.remove(players[id].mesh)
     delete players[id]
   })
@@ -142,18 +118,6 @@ function createGame(options) {
 function onServerUpdate(update) {
   var pos = game.controls.yawObject.position
   var distance = pos.distanceTo(update.position)
-}
-
-function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
-  var chunk = game.voxels.chunks[ckey]
-  if (!chunk) return
-  var size = game.voxels.chunkSize
-  var vidx = v.x + v.y*size + v.z*size*size
-  if (typeof val !== 'undefined') {
-    chunk.voxels[vidx] = val
-  }
-  var v = chunk.voxels[vidx]
-  return v
 }
 
 function lerpMe(position) {
@@ -173,7 +137,7 @@ function updatePlayerPosition(id, update) {
     playerMesh.children[0].position.y = 10
     game.scene.add(playerMesh)
   }
-  var playerSkin = players[id]
+  var playerSkin = window.playerSkin = players[id]
   var playerMesh = playerSkin.mesh.children[0]
   playerMesh.position.copy(pos, lerpPercent)
   
@@ -184,4 +148,9 @@ function updatePlayerPosition(id, update) {
   
   playerMesh.position.y -= 23
   playerMesh.rotation.y = update.rotation.y + (Math.PI / 2)
+  playerSkin.head.rotation.z = scale(update.rotation.x, -1.5, 1.5, -0.75, 0.75)
+}
+
+function scale( x, fromLow, fromHigh, toLow, toHigh ) {
+  return ( x - fromLow ) * ( toHigh - toLow ) / ( fromHigh - fromLow ) + toLow
 }

@@ -3,11 +3,10 @@ var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
-var MuxDemux = require('mux-demux')
-var Scuttlebutt = require('scuttlebutt/model')
 var playerPhysics = require('player-physics')
 var path = require('path')
 var uuid = require('hat')
+var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
 
 var fakeLag = 100
@@ -23,7 +22,6 @@ var settings = {
 var game = engine(settings)
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
-var voxelStore = new Scuttlebutt()
 var clients = {}
 
 // simple version of socket.io's sockets.emit
@@ -41,14 +39,12 @@ function sendUpdate() {
   clientKeys.map(function(key) {
     var emitter = clients[key]
     update.positions[key] = {
-      jump: emitter.player.needsJump,
       position: emitter.player.position,
       rotation: {
         x: emitter.player.rotation.x,
         y: emitter.player.rotation.y
       }
     }
-    emitter.player.needsJump = false
   })
   broadcast(false, 'update', update)
 }
@@ -59,21 +55,7 @@ wss.on('connection', function(ws) {
   // turn 'raw' websocket into a stream
   var stream = websocket(ws)
   
-  // muxdemux lets us transport multiple streams
-  // over our websocket connection
-  var mdm = MuxDemux()
-  stream.pipe(mdm).pipe(stream)
-
-  // first stream is a remote event emitter that
-  // gets used for sending player state back and forth
-  var emitterStream = mdm.createStream('emitter')
-  var emitter = duplexEmitter(emitterStream)
-
-  // second stream is scuttlebutt which replicates
-  // individual edits to the voxel world
-  var voxelStream = mdm.createStream('voxels')
-  var storeStream = voxelStore.createStream()
-  storeStream.pipe(voxelStream).pipe(storeStream)
+  var emitter = duplexEmitter(stream)
   
   var id = uuid()
   clients[id] = emitter
@@ -100,11 +82,6 @@ wss.on('connection', function(ws) {
   // fires when the user tells us they are
   // done generating the base world
   emitter.on('generated', function(seq) {
-    emitter.on('jump', function() {
-      setTimeout(function() {
-        emitter.player.needsJump = true
-      }, fakeLag)
-    })
     // fires when client sends us new input state
     emitter.on('state', function(state) {
       setTimeout(function() {
@@ -122,25 +99,12 @@ wss.on('connection', function(ws) {
     })
   })
   
-  emitter.on('set', function(ckey, pos, val) {
-    var before = voxelAtChunkIndexAndVoxelVector(ckey, pos)
-    var after = voxelAtChunkIndexAndVoxelVector(ckey, pos, val)
-    var key = ckey + '|' + pos.x + '|' + pos.y + '|' + pos.z
-    voxelStore.set(key, val)
+  emitter.on('set', function(pos, val) {
+    game.setBlock(pos, val)
+    emitter.emit('set', pos, val)
   })
+  
 })
-
-function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
-  var chunk = game.voxels.chunks[ckey]
-  if (!chunk) return false
-  var size = game.voxels.chunkSize
-  var vidx = v.x + v.y*size + v.z*size*size
-  if (typeof val !== 'undefined') {
-    chunk.voxels[vidx] = val
-  }
-  var v = chunk.voxels[vidx]
-  return v
-}
 
 var port = process.argv[2] || 8080
 server.listen(port)
