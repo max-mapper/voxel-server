@@ -17,7 +17,7 @@ if you make any changes to client.js you have to run `make` and reload the brows
 
 ## explanation
 
-based on bits and pieces of:
+background research:
 
 - http://buildnewgames.com/real-time-multiplayer/
 - https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
@@ -28,19 +28,9 @@ based on bits and pieces of:
 
 ### what is implemented
 
-the server + client both run [voxel-engine](http://github.com/maxogden/voxel-engine) and [player-physics](http://github.com/maxogden/player-physics). world edits are replicated between all clients + server through use of [scuttlebutt](http://github.com/dominictarr/scuttlebutt).
+multiplayer where the server mostly trusts the client and just filters out egregious hacking attemps (like teleportation). this simplifies the net code quite a bit
 
-when a client connects the server sends it the game config (including what world to generate, if not the default sphere world). 
-
-after the client has generated the world it tells the server it is ready and it starts receiving position updates.
-
-keyboard + mouse inputs are sent to the server and positions are sent back. there is rudimentary client side prediction for the local player though it is choppy and needs work + tuning (see the storeServerUpdate function).
-
-### known issues
-
-the syncing of world edits seems to stop working after a while. not sure why, havent had time to look into it. also updates should ideally come in groups of edits and not individual voxel edits.
-
-reconciliation of predicted location with the servers authoritative location is not implemented very well
+if you want to check out the now defunct client side prediction version use https://github.com/maxogden/voxel-server/commit/61280b1a37d79a742fd7fbec4b8427ea820cb935
 
 ## license
 
