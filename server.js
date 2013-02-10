@@ -34,45 +34,26 @@ function broadcast(id, cmd, arg1, arg2, arg3) {
   })
 }
 
-// broadcast loop
-// sends all positions to all players
-// TODO only broadcast positions to nearby players
-setInterval(function() {
+function sendUpdate() {
   var clientKeys = Object.keys(clients)
   if (clientKeys.length === 0) return
   var update = {positions:{}}
   clientKeys.map(function(key) {
     var emitter = clients[key]
     update.positions[key] = {
-      position: emitter.player.yawObject.position,
-      velocity: emitter.player.velocity,
+      jump: emitter.player.needsJump,
+      position: emitter.player.position,
       rotation: {
-        x: emitter.player.pitchObject.rotation.x,
-        y: emitter.player.yawObject.rotation.y
-      },
-      seq: emitter.player.lastProcessedSeq
+        x: emitter.player.rotation.x,
+        y: emitter.player.rotation.y
+      }
     }
+    emitter.player.needsJump = false
   })
   broadcast(false, 'update', update)
-}, 1000/22) // 45ms
+}
 
-// physics loop
-// updates server side physics based on client input
-setInterval(function() {
-  var clientKeys = Object.keys(clients)
-  if (clientKeys.length === 0) return
-  clientKeys.map(function(key) {
-    var emitter = clients[key]
-    var delta = Date.now() - emitter.lastUpdate
-    
-    // this is attempting to simulate what Game.prototype.tick does from voxel-engine
-    emitter.player.tick(delta, function(controls) {
-      var bbox = game.playerAABB(emitter.player.yawObject.position)
-      game.updatePlayerPhysics(bbox, emitter.player)
-    })
-    emitter.lastUpdate = Date.now()
-  })
-}, 1000/66) // 15ms
+setInterval(sendUpdate, 1000/22) // 45ms
 
 wss.on('connection', function(ws) {
   // turn 'raw' websocket into a stream
@@ -96,24 +77,11 @@ wss.on('connection', function(ws) {
   
   var id = uuid()
   clients[id] = emitter
-  emitter.lastUpdate = Date.now()
   
-  // each player gets their own three.js scene.
-  // this never gets rendered visually, but it does get
-  // used to calculate physics in-memory.
-  // TODO should probably use one scene for all players
-  emitter.scene = new game.THREE.Scene()
-  var playerOptions = {
-    pitchObject: new game.THREE.Object3D(),
-    yawObject: new game.THREE.Object3D(),
-    velocityObject: new game.THREE.Vector3()
+  emitter.player = {
+    rotation: new game.THREE.Vector3(),
+    position: new game.THREE.Vector3()
   }
-  // playerPhysics is https://github.com/maxogden/player-physics
-  emitter.player = playerPhysics(false, playerOptions)
-  emitter.player.enabled = true
-  emitter.player.yawObject.position.copy(settings.startingPosition)
-  emitter.player.lastProcessedSeq = 0
-  emitter.scene.add( emitter.player.yawObject )
 
   console.log(id, 'joined')
   emitter.emit('id', id)
@@ -134,22 +102,22 @@ wss.on('connection', function(ws) {
   emitter.on('generated', function(seq) {
     emitter.on('jump', function() {
       setTimeout(function() {
-        emitter.player.emit('command', 'jump')        
+        emitter.player.needsJump = true
       }, fakeLag)
     })
     // fires when client sends us new input state
     emitter.on('state', function(state) {
       setTimeout(function() {
-        Object.keys(state.movement).map(function(key) {
-          emitter.player[key] = state.movement[key]
-        })
-        emitter.player.yawObject.rotation.y = state.rotation.y
-        emitter.player.pitchObject.rotation.x = state.rotation.x
-        
-        // important - this updates all calculations in three.js
-        emitter.scene.updateMatrixWorld()
-        
-        emitter.player.lastProcessedSeq = state.seq
+        emitter.player.rotation.x = state.rotation.x
+        emitter.player.rotation.y = state.rotation.y
+        var pos = emitter.player.position
+        var distance = pos.distanceTo(state.position)
+        if (distance > 20) {
+          var before = pos.clone()
+          pos.lerpSelf(state.position, 0.1)
+          return
+        }
+        pos.copy(state.position)
       }, fakeLag)
     })
   })

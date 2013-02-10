@@ -3,10 +3,10 @@
   "subdomain": "voxel",
   "version": "0.0.1",
   "dependencies": {
-    "voxel-engine": "0.5.1",
+    "voxel-engine": "0.5.5",
     "player-physics": "0.1.0",
     "three": "0.54.0",
-    "minecraft-skin": "0.0.1",
+    "minecraft-skin": "0.0.2",
     "websocket-stream": "0.0.5",
     "ws": "0.4.25",
     "ecstatic": "0.3.0",

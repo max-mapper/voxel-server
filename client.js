@@ -13,6 +13,7 @@ var emitter, playerID, game
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
 var currentMaterial = 1
+var lerpPercent = 0.1
 
 window.addEventListener('keydown', function (ev) {
   if (ev.keyCode === 'X'.charCodeAt(0)) erase = !erase
@@ -74,7 +75,6 @@ function createGame(options) {
     moveLeft: false,
     moveRight: false
   }
-  game.controls.removeAllListeners('command')
   
   game.controls.on('command', function(command, setting) {
     if (!connected) return
@@ -86,7 +86,7 @@ function createGame(options) {
     if (!connected) return
     if (!game.controls.enabled) return
     var state = {
-      seq: Date.now(),
+      position: game.controls.yawObject.position,
       movement: game.fakeControls,
       rotation: {
         y: game.controls.yawObject.rotation.y,
@@ -94,20 +94,13 @@ function createGame(options) {
       }
     }
     emitter.emit('state', state)
-    localInputs.push(state)
-    Object.keys(state.movement).map(function(key) {
-      game.controls[key] = state.movement[key]
-    })
   }, 1000/22)
 
   var container = document.querySelector('#container')
   game.appendTo(container)
-  container.addEventListener('click', function() {
-    game.requestPointerLock(container)
-  })
+  game.setupPointerLock(container)
   
   game.viking = skin(game.THREE, 'viking.png')
-  console.log("viking4")
   game.controls.pitchObject.rotation.x = -1.5;
   
   blockSelector.on('select', function(material) {
@@ -132,70 +125,23 @@ function createGame(options) {
     emitter.on('update', function(updates) {      
       Object.keys(updates.positions).map(function(player) {
         var update = updates.positions[player]
-        if (player === playerID) return storeServerUpdate(update) // local player respecting server as authoritative positional data
-        positionPlayerBasedOnNewLocalInputs(); // local player client input prediction
+        if (player === playerID) return onServerUpdate(update) // local player
         updatePlayerPosition(player, update) // other players
       })
     })
   }, 1000)
 
   emitter.on('leave', function(id) {
-    // game.scene.remove(players[id].mesh) <- this doesnt work for some reason
+    game.scene.remove(players[id].mesh)
     delete players[id]
   })
   
   return game
 }
 
-function positionPlayerBasedOnNewLocalInputs() {
-  loopOverNewLocalInputs(game.controls, game.scene, function(delta, input) {
-    Object.keys(input.movement).map(function(key) {
-      game.controls[key] = input.movement[key]
-    })    
-    game.controls.tick(delta, function() {
-      var bbox = game.playerAABB()
-      var beforeUpdate = pos.clone()
-      game.scene.updateMatrixWorld() // not sure if this is actually needed or not
-      game.updatePlayerPhysics(bbox, game.controls)
-      console.log(beforeUpdate.distanceTo(pos))
-    })
-  })
-  var target = pos.clone()
-  pos.copy(before)
-  lerpMe(target)
-}
-
-function storeServerUpdate(update) {
-  // goal (from http://gafferongames.com/networking-for-game-programmers/what-every-programmer-needs-to-know-about-game-networking/): 
-  // "replays the state starting from the corrected state back to the present “predicted” time on the client using player inputs stored in the circular buffer. In effect the client invisibly “rewinds and replays” the last n frames of local player character movement while holding the rest of the world fixed."
-  discardOldLocalInputs(update)
+function onServerUpdate(update) {
   var pos = game.controls.yawObject.position
-  var before = pos.clone()
-  pos.copy(update.position)
   var distance = pos.distanceTo(update.position)
-  if (distance > 20) return console.log(distance)
-}
-
-function loopOverNewLocalInputs(physics, scene, cb) {
-  for (i = 0; i < localInputs.length; i++) {
-    var input = localInputs[i]
-    var delta = input.seq - lastProcessedSeq
-    if (delta < 0) return
-    if (cb) cb(delta, input)
-    lastProcessedSeq = input.seq
-  }
-}
-
-function discardOldLocalInputs(update) {
-  var lastProcessedIndex = 0
-  for (i = 0; i < localInputs.length; i++) {
-    if (localInputs[i].seq === update.seq) {
-      lastProcessedIndex = i
-      lastProcessedSeq = update.seq
-      break
-    }
-  }
-  localInputs.splice(0, lastProcessedIndex + 1)
 }
 
 function voxelAtChunkIndexAndVoxelVector(ckey, v, val) {
@@ -214,21 +160,28 @@ function lerpMe(position) {
   var to = new game.THREE.Vector3()
   to.copy(position)
   var from = game.controls.yawObject.position
-  from.copy(from.lerpSelf(to, 0.1))  
+  from.copy(from.lerpSelf(to, lerpPercent))  
 }
 
 function updatePlayerPosition(id, update) {
   var pos = update.position
   var player = players[id]
   if (!player) {
-    var playerMesh = game.viking.createPlayerObject()
-    players[id] = playerMesh
+    var playerSkin = game.viking
+    var playerMesh = playerSkin.mesh
+    players[id] = playerSkin
     playerMesh.children[0].position.y = 10
     game.scene.add(playerMesh)
   }
-  var playerMesh = players[id].children[0]
-  players[id].lastPositionTime = Date.now()
-  playerMesh.position.copy(pos)
+  var playerSkin = players[id]
+  var playerMesh = playerSkin.mesh.children[0]
+  playerMesh.position.copy(pos, lerpPercent)
+  
+  var to = new game.THREE.Vector3()
+  to.copy(pos)
+  var from = playerMesh.position
+  from.copy(from.lerpSelf(to, lerpPercent))  
+  
   playerMesh.position.y -= 23
   playerMesh.rotation.y = update.rotation.y + (Math.PI / 2)
 }
