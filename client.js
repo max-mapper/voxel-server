@@ -1,14 +1,13 @@
 var url = require('url')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
-var playerPhysics = require('player-physics')
 var duplexEmitter = require('duplex-emitter')
 var skin = require('minecraft-skin')
 var walk = require('voxel-walk')
 var toolbar = require('toolbar')
+var rescue = require('voxel-rescue')
 var crunch = require('voxel-crunch')
 var blockSelector = toolbar({el: '#tools'})
-
 var emitter, playerID
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
@@ -32,13 +31,18 @@ function connectToGameServer(socket) {
   connected = true
 
   emitter.on('id', function(id) {
-    console.log('id', id)
     playerID = id
   })
 
   emitter.on('settings', function(settings) {
+    settings.generateChunks = false
     window.game = game = createGame(settings)
-    emitter.emit('generated', Date.now())
+    emitter.emit('created')
+    emitter.on('chunk', function(encoded, chunk) {
+      var voxels = crunch.decode(encoded, chunk.length)
+      chunk.voxels = voxels
+      game.showChunk(chunk)
+    })
   })
 
   // fires when server sends us voxel edits
@@ -67,13 +71,12 @@ function createGame(options) {
   var container = document.querySelector('#container')
   game.appendTo(container)
   game.setupPointerLock(container)
-  
+  rescue(game)
   game.viking = skin(game.THREE, 'viking.png')
   game.controls.pitchObject.rotation.x = -1.5;
   
   blockSelector.on('select', function(material) {
-    var idx = game.materials.indexOf(material)
-    if (idx > -1) currentMaterial = idx + 1
+    currentMaterial = +material
   })
   
   game.on('mousedown', function (pos) {
@@ -112,12 +115,15 @@ function createGame(options) {
     delete players[id]
   })
   
+  
+  
   return game
 }
 
 function onServerUpdate(update) {
   var pos = game.controls.yawObject.position
   var distance = pos.distanceTo(update.position)
+  // todo use server sent location
 }
 
 function lerpMe(position) {

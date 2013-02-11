@@ -4,8 +4,6 @@
   "version": "0.0.1-19",
   "dependencies": {
     "voxel-engine": "0.5.7",
-    "player-physics": "0.1.0",
-    "three": "0.54.0",
     "minecraft-skin": "0.0.2",
     "voxel-walk": "0.0.1",
     "voxel-crunch": "0.1.0",
@@ -14,7 +12,7 @@
     "ecstatic": "0.3.0",
     "hat": "0.0.3",
     "duplex-emitter": "0.1.6",
-    "toolbar": "0.0.2"
+    "toolbar": "0.0.5"
   },
   "scripts": {
     "start": "node server.js"

@@ -3,7 +3,6 @@ var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
-var playerPhysics = require('player-physics')
 var path = require('path')
 var uuid = require('hat')
 var crunch = require('voxel-crunch')
@@ -80,8 +79,9 @@ wss.on('connection', function(ws) {
   emitter.emit('settings', settings)
   
   // fires when the user tells us they are
-  // done generating the base world
-  emitter.on('generated', function(seq) {
+  // ready for chunks to be sent
+  emitter.on('created', function() {
+    sendInitialChunks(emitter)
     // fires when client sends us new input state
     emitter.on('state', function(state) {
       setTimeout(function() {
@@ -101,10 +101,22 @@ wss.on('connection', function(ws) {
   
   emitter.on('set', function(pos, val) {
     game.setBlock(pos, val)
-    emitter.emit('set', pos, val)
+    broadcast(null, 'set', pos, val)
   })
   
 })
+
+function sendInitialChunks(emitter) {
+  Object.keys(game.voxels.chunks).map(function(chunkID) {
+    var chunk = game.voxels.chunks[chunkID]
+    var encoded = crunch.encode(chunk.voxels)
+    emitter.emit('chunk', encoded, {
+      position: chunk.position,
+      dims: chunk.dims,
+      length: chunk.voxels.length
+    })
+  })
+}
 
 var port = process.argv[2] || 8080
 server.listen(port)
