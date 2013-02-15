@@ -6,8 +6,11 @@ var skin = require('minecraft-skin')
 var walk = require('voxel-walk')
 var toolbar = require('toolbar')
 var rescue = require('voxel-rescue')
+var randomName = require('./randomname')
 var crunch = require('voxel-crunch')
+var emitChat = require('./chat')
 var blockSelector = toolbar({el: '#tools'})
+var highlight = require('voxel-highlight')
 var emitter, playerID
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
@@ -33,7 +36,7 @@ function connectToGameServer(socket) {
   emitter.on('id', function(id) {
     playerID = id
   })
-
+  
   emitter.on('settings', function(settings) {
     settings.generateChunks = false
     window.game = game = createGame(settings)
@@ -55,7 +58,7 @@ function createGame(options) {
   options.controlsDisabled = false
   window.game = engine(options)
 
-  setInterval(function() {
+  function sendState() {
     if (!connected) return
     if (!game.controls.enabled) return
     var state = {
@@ -66,7 +69,21 @@ function createGame(options) {
       }
     }
     emitter.emit('state', state)
-  }, 1000/22)
+  }
+  
+  setInterval(sendState, 100)
+  
+  var name = localStorage.getItem('name')
+  if (!name) {
+    name = randomName()
+    localStorage.setItem('name', name)
+  }
+
+  game.controls.on('command', function() {
+    sendState()
+  })
+
+  emitChat(name, emitter)
 
   var container = document.querySelector('#container')
   game.appendTo(container)
@@ -74,6 +91,7 @@ function createGame(options) {
   rescue(game)
   game.viking = skin(game.THREE, 'viking.png')
   game.controls.pitchObject.rotation.x = -1.5;
+  highlight(game)
   
   blockSelector.on('select', function(material) {
     currentMaterial = +material

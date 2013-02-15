@@ -15,6 +15,7 @@ var fakeLag = 100
 // new clients when they connect
 var settings = {
   startingPosition: {x: 0, y: 1000, z: 0},
+  materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
   controlsDisabled: true
 }
 
@@ -74,6 +75,14 @@ wss.on('connection', function(ws) {
     console.log(id, 'left')
     broadcast(id, 'leave', id)
   }
+  
+  emitter.on('message', function(message) {
+    if (!message.text) return
+    if (message.text.length > 140) message.text = message.text.substr(0, 140)
+    if (message.text.length === 0) return
+    console.log('chat', message)
+    broadcast(null, 'message', message)
+  })
   
   // give the user the initial game settings
   emitter.emit('settings', settings)
