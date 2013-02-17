@@ -7,7 +7,8 @@
     "voxel-walk": "0.0.1",
     "voxel-highlight": "0.0.1",
     "toolbar": "0.0.5",
-    "voxel-player": "0.0.2"
+    "voxel-player": "0.0.2",
+    "voxel-engine": "0.5.8"
   },
   "scripts": {
     "start": "node server.js"
