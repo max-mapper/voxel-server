@@ -2,15 +2,14 @@ var url = require('url')
 var websocket = require('websocket-stream')
 var engine = require('voxel-engine')
 var duplexEmitter = require('duplex-emitter')
-var skin = require('minecraft-skin')
-var walk = require('voxel-walk')
 var toolbar = require('toolbar')
-var rescue = require('voxel-rescue')
 var randomName = require('./randomname')
 var crunch = require('voxel-crunch')
 var emitChat = require('./chat')
 var blockSelector = toolbar({el: '#tools'})
 var highlight = require('voxel-highlight')
+var skin = require('minecraft-skin')
+var player = require('voxel-player')
 var emitter, playerID
 var players = {}, lastProcessedSeq = 0
 var localInputs = [], connected = false, erase = true
@@ -60,61 +59,65 @@ function createGame(options) {
 
   function sendState() {
     if (!connected) return
-    if (!game.controls.enabled) return
     var state = {
-      position: game.controls.yawObject.position,
+      position: viking.yaw.position,
       rotation: {
-        y: game.controls.yawObject.rotation.y,
-        x: game.controls.pitchObject.rotation.x
+        y: viking.yaw.rotation.y,
+        x: viking.pitch.rotation.x
       }
     }
     emitter.emit('state', state)
   }
-  
-  setInterval(sendState, 100)
-  
+    
   var name = localStorage.getItem('name')
   if (!name) {
     name = randomName()
     localStorage.setItem('name', name)
   }
 
-  game.controls.on('command', function() {
-    sendState()
+  game.controls.on('data', function(state) {
+    var interacting = false
+    Object.keys(state).map(function(control) {
+      if (state[control] > 0) interacting = true
+    })
+    if (interacting) sendState()
   })
 
   emitChat(name, emitter)
 
   var container = document.querySelector('#container')
   game.appendTo(container)
-  game.setupPointerLock(container)
-  rescue(game)
-  game.viking = skin(game.THREE, 'viking.png')
-  game.controls.pitchObject.rotation.x = -1.5;
+  // rescue(game)
+  var createPlayer = player(game)
+  var viking = createPlayer('viking.png')
+  viking.moveTo(options.startingPosition)
+  viking.possess()
+  
   highlight(game)
   
   blockSelector.on('select', function(material) {
     currentMaterial = +material
   })
   
-  game.on('mousedown', function (pos) {
-    pos = {x: pos.x, y: pos.y, z: pos.z}
+  game.on('fire', function (target, state) {
+    var vec = game.cameraVector()
+    var pos = game.cameraPosition()
+    var point = game.raycast(pos, vec, 100)
+    if (!point) return
+    var erase = !state.firealt && !state.alt
     var size = game.cubeSize
     if (erase) {
-      emitter.emit('set', pos, 0)
+      emitter.emit('set', {x: point.x, y: point.y, z: point.z}, 0)
     } else {
-      var newBlock = game.checkBlock(pos)
+      var newBlock = game.checkBlock(point)
       if (!newBlock) return
-      emitter.emit('set', newBlock.position, currentMaterial)
+      var direction = game.camera.matrixWorld.multiplyVector3(new game.THREE.Vector3(0,0,-1))
+      var diff = direction.subSelf(game.controls.target().yaw.position.clone()).normalize()
+      diff.multiplySelf({ x: 1, y: 1, z: 1 })
+      var p = point.clone().addSelf(diff)
+      emitter.emit('set', p, currentMaterial)
     }
   })
-  
-  // game.on('tick', function(delta) {
-  //   Object.keys(players).map(function(player) {
-  //     var now = Date.now()
-  //     walk.render(players[player], now / 1000)
-  //   })
-  // })
   
   // setTimeout is because three.js seems to throw errors if you add stuff too soon
   setTimeout(function() {
@@ -133,13 +136,11 @@ function createGame(options) {
     delete players[id]
   })
   
-  
-  
   return game
 }
 
 function onServerUpdate(update) {
-  var pos = game.controls.yawObject.position
+  var pos = game.controls.target().yaw.position
   var distance = pos.distanceTo(update.position)
   // todo use server sent location
 }
@@ -147,7 +148,7 @@ function onServerUpdate(update) {
 function lerpMe(position) {
   var to = new game.THREE.Vector3()
   to.copy(position)
-  var from = game.controls.yawObject.position
+  var from = game.controls.target().yaw.position
   from.copy(from.lerpSelf(to, lerpPercent))  
 }
 
@@ -155,7 +156,7 @@ function updatePlayerPosition(id, update) {
   var pos = update.position
   var player = players[id]
   if (!player) {
-    var playerSkin = game.viking
+    var playerSkin = skin(game.THREE, 'viking.png')
     var playerMesh = playerSkin.mesh
     players[id] = playerSkin
     playerMesh.children[0].position.y = 10
@@ -170,7 +171,7 @@ function updatePlayerPosition(id, update) {
   var from = playerMesh.position
   from.copy(from.lerpSelf(to, lerpPercent))  
   
-  playerMesh.position.y -= 23
+  playerMesh.position.y += 17
   playerMesh.rotation.y = update.rotation.y + (Math.PI / 2)
   playerSkin.head.rotation.z = scale(update.rotation.x, -1.5, 1.5, -0.75, 0.75)
 }

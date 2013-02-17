@@ -8,21 +8,21 @@ var uuid = require('hat')
 var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
 
-var fakeLag = 100
-
 // these settings will be used to create an in-memory
 // world on the server and will be sent to all
 // new clients when they connect
 var settings = {
   startingPosition: {x: 0, y: 1000, z: 0},
   materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
-  controlsDisabled: true
+  controlsDisabled: true,
+  controls: { discreteFire: true }
 }
 
 var game = engine(settings)
 var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
 var wss = new WebSocketServer({server: server})
 var clients = {}
+var chunkCache = {}
 
 // simple version of socket.io's sockets.emit
 function broadcast(id, cmd, arg1, arg2, arg3) {
@@ -93,23 +93,24 @@ wss.on('connection', function(ws) {
     sendInitialChunks(emitter)
     // fires when client sends us new input state
     emitter.on('state', function(state) {
-      setTimeout(function() {
-        emitter.player.rotation.x = state.rotation.x
-        emitter.player.rotation.y = state.rotation.y
-        var pos = emitter.player.position
-        var distance = pos.distanceTo(state.position)
-        if (distance > 20) {
-          var before = pos.clone()
-          pos.lerpSelf(state.position, 0.1)
-          return
-        }
-        pos.copy(state.position)
-      }, fakeLag)
+      emitter.player.rotation.x = state.rotation.x
+      emitter.player.rotation.y = state.rotation.y
+      var pos = emitter.player.position
+      var distance = pos.distanceTo(state.position)
+      if (distance > 20) {
+        var before = pos.clone()
+        pos.lerpSelf(state.position, 0.1)
+        return
+      }
+      pos.copy(state.position)
     })
   })
   
   emitter.on('set', function(pos, val) {
     game.setBlock(pos, val)
+    var chunkPos = game.voxels.chunkAtPosition(pos)
+    var chunkID = chunkPos.join('|')
+    if (chunkCache[chunkID]) delete chunkCache[chunkID]
     broadcast(null, 'set', pos, val)
   })
   
@@ -118,7 +119,11 @@ wss.on('connection', function(ws) {
 function sendInitialChunks(emitter) {
   Object.keys(game.voxels.chunks).map(function(chunkID) {
     var chunk = game.voxels.chunks[chunkID]
-    var encoded = crunch.encode(chunk.voxels)
+    var encoded = chunkCache[chunkID]
+    if (!encoded) {
+      encoded = crunch.encode(chunk.voxels)
+      chunkCache[chunkID] = encoded
+    }
     emitter.emit('chunk', encoded, {
       position: chunk.position,
       dims: chunk.dims,

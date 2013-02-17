@@ -3,12 +3,11 @@
   "subdomain": "voxel",
   "version": "0.0.1",
   "dependencies": {
-    "voxel-multiplayer": "0.0.1",
     "minecraft-skin": "0.0.2",
     "voxel-walk": "0.0.1",
     "voxel-highlight": "0.0.1",
     "toolbar": "0.0.5",
-    "voxel-rescue": "0.0.2"
+    "voxel-player": "0.0.2"
   },
   "scripts": {
     "start": "node server.js"
