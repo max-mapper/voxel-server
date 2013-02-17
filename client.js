@@ -54,8 +54,7 @@ function connectToGameServer(socket) {
 function createGame(options) {
   options.controlsDisabled = false
   window.game = engine(options)
-
-  setInterval(function() {
+  game.controls.on('changed', function() {
     if (!connected) return
     if (!game.controls.enabled) return
     var state = {
@@ -66,7 +65,7 @@ function createGame(options) {
       }
     }
     emitter.emit('state', state)
-  }, 1000/22)
+  });
 
   var container = document.querySelector('#container')
   game.appendTo(container)
