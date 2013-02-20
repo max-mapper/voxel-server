@@ -82,7 +82,7 @@ function createGame(options) {
     })
     if (interacting) sendState()
   })
-
+    
   emitChat(name, emitter)
 
   var container = document.querySelector('#container')

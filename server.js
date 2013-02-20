@@ -15,7 +15,11 @@ var settings = {
   startingPosition: {x: 0, y: 1000, z: 0},
   materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
   controlsDisabled: true,
-  controls: { discreteFire: true }
+  controls: { discreteFire: true },
+  generate: function flatWorld(x, y, z) {
+  	if (y === 0) return 1
+    return 0
+  }
 }
 
 var game = engine(settings)
