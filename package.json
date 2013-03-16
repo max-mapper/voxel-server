@@ -18,7 +18,7 @@
     
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "engines": {
     "node": "0.8.x"
