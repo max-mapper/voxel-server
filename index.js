@@ -36,25 +36,6 @@ function broadcast(id, cmd, arg1, arg2, arg3) {
   })
 }
 
-function sendUpdate() {
-  var clientKeys = Object.keys(clients)
-  if (clientKeys.length === 0) return
-  var update = {positions:{}}
-  clientKeys.map(function(key) {
-    var emitter = clients[key]
-    update.positions[key] = {
-      position: emitter.player.position,
-      rotation: {
-        x: emitter.player.rotation.x,
-        y: emitter.player.rotation.y
-      }
-    }
-  })
-  broadcast(false, 'update', update)
-}
-
-setInterval(sendUpdate, 1000/22) // 45ms
-
 wss.on('connection', function(ws) {
   // turn 'raw' websocket into a stream
   var stream = websocket(ws)
@@ -71,7 +52,9 @@ wss.on('connection', function(ws) {
 
   console.log(id, 'joined')
   emitter.emit('id', id)
+  console.log(id, 'emitted')
   broadcast(id, 'join', id)
+  console.log(id, 'broadcast')
   stream.once('end', leave)
   stream.once('error', leave)
   function leave() {
@@ -90,10 +73,11 @@ wss.on('connection', function(ws) {
   
   // give the user the initial game settings
   emitter.emit('settings', settings)
-  
+  console.log('settings sent')
   // fires when the user tells us they are
   // ready for chunks to be sent
   emitter.on('created', function() {
+	console.log("client is ready: sendInitialChunks")
     sendInitialChunks(emitter)
     // fires when client sends us new input state
     emitter.on('state', function(state) {
@@ -108,6 +92,8 @@ wss.on('connection', function(ws) {
       }
       pos.copy(state.position)
     })
+	// it's now ok to send updates.
+	setInterval(sendUpdate, 1000/22) // 45ms
   })
   
   emitter.on('set', function(pos, val) {
@@ -134,6 +120,23 @@ function sendInitialChunks(emitter) {
       length: chunk.voxels.length
     })
   })
+}
+
+function sendUpdate() {
+  var clientKeys = Object.keys(clients)
+  if (clientKeys.length === 0) return
+  var update = {positions:{}}
+  clientKeys.map(function(key) {
+    var emitter = clients[key]
+    update.positions[key] = {
+      position: emitter.player.position,
+      rotation: {
+        x: emitter.player.rotation.x,
+        y: emitter.player.rotation.y
+      }
+    }
+  })
+  broadcast(false, 'update', update)
 }
 
 var port = process.argv[2] || 8080
