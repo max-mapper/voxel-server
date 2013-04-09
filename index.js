@@ -7,19 +7,36 @@ var path = require('path')
 var uuid = require('hat')
 var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
+var texturePath = require('painterly-textures')(__dirname)
+var voxel = require('voxel')
 
 // these settings will be used to create an in-memory
 // world on the server and will be sent to all
 // new clients when they connect
+// var settings = {
+//   startingPosition: {x: 0, y: 1000, z: 0},
+//   materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
+//   controlsDisabled: true,
+//   controls: { discreteFire: true },
+//   generate: function flatWorld(x, y, z) {
+//   	if (y === 0) return 1
+//     return 0
+//   }
+// }
+
 var settings = {
-  startingPosition: {x: 0, y: 1000, z: 0},
-  materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
-  controlsDisabled: true,
-  controls: { discreteFire: true },
-  generate: function flatWorld(x, y, z) {
-  	if (y === 0) return 1
-    return 0
-  }
+	generate: voxel.generator['Valley'],
+	chunkDistance: 2,
+	materials: [
+	['grass', 'dirt', 'grass_dirt'],
+	'obsidian',
+	'brick',
+	'grass',
+	'plank'
+	],
+	texturePath: texturePath,
+	worldOrigin: [0, 0, 0],
+	controls: { discreteFire: true }
 }
 
 var game = engine(settings)
@@ -97,6 +114,7 @@ wss.on('connection', function(ws) {
   })
   
   emitter.on('set', function(pos, val) {
+	console.log("Server setting block - pos:" + JSON.stringify(pos) + " val:" + val)
     game.setBlock(pos, val)
     var chunkPos = game.voxels.chunkAtPosition(pos)
     var chunkID = chunkPos.join('|')
@@ -107,6 +125,7 @@ wss.on('connection', function(ws) {
 })
 
 function sendInitialChunks(emitter) {
+	console.log("sendInitialChunks")
   Object.keys(game.voxels.chunks).map(function(chunkID) {
     var chunk = game.voxels.chunks[chunkID]
     var encoded = chunkCache[chunkID]
