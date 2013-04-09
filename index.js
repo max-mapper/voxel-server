@@ -104,7 +104,8 @@ wss.on('connection', function(ws) {
       var distance = pos.distanceTo(state.position)
       if (distance > 20) {
         var before = pos.clone()
-        pos.lerpSelf(state.position, 0.1)
+		console.log("server lerp")
+        pos.lerp(state.position, 0.1)
         return
       }
       pos.copy(state.position)
@@ -126,19 +127,20 @@ wss.on('connection', function(ws) {
 
 function sendInitialChunks(emitter) {
 	console.log("sendInitialChunks")
-  Object.keys(game.voxels.chunks).map(function(chunkID) {
-    var chunk = game.voxels.chunks[chunkID]
-    var encoded = chunkCache[chunkID]
-    if (!encoded) {
-      encoded = crunch.encode(chunk.voxels)
-      chunkCache[chunkID] = encoded
-    }
-    emitter.emit('chunk', encoded, {
-      position: chunk.position,
-      dims: chunk.dims,
-      length: chunk.voxels.length
-    })
-  })
+	Object.keys(game.voxels.chunks).map(function(chunkID) {
+		var chunk = game.voxels.chunks[chunkID]
+		var encoded = chunkCache[chunkID]
+		if (!encoded) {
+			encoded = crunch.encode(chunk.voxels)
+			chunkCache[chunkID] = encoded
+		}
+		emitter.emit('chunk', encoded, {
+			position: chunk.position,
+			dims: chunk.dims,
+			length: chunk.voxels.length
+		})
+	})
+	emitter.emit('sentInitialChunks')
 }
 
 function sendUpdate() {
