@@ -7,6 +7,7 @@ var path = require('path')
 var uuid = require('hat')
 var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
+var texturePath = require('painterly-textures')(__dirname)
 
 module.exports = function() {
   
@@ -18,7 +19,7 @@ module.exports = function() {
     materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'whitewool'],
     controlsDisabled: true,
     controls: { discreteFire: true },
-    texturePath: "http://commondatastorage.googleapis.com/voxeltextures/",
+    texturePath: texturePath,
     generate: function flatWorld(x, y, z) {
       if (y === 0) return 1
       return 0
@@ -106,7 +107,7 @@ module.exports = function() {
         var distance = pos.distanceTo(state.position)
         if (distance > 20) {
           var before = pos.clone()
-          pos.lerpSelf(state.position, 0.1)
+          pos.lerp(state.position, 0.1)
           return
         }
         pos.copy(state.position)
