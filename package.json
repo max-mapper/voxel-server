@@ -15,12 +15,14 @@
     "ecstatic": "0.3.0",
     "hat": "0.0.3",
     "duplex-emitter": "0.1.6"
-    
   },
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
     "node": "0.8.x"
+  },
+  "devDependencies": {
+    "websocket-stream": "0.0.5"
   }
 }
