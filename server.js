@@ -12,12 +12,13 @@ var engine = require('voxel-engine')
 // world on the server and will be sent to all
 // new clients when they connect
 var settings = {
-  startingPosition: {x: 0, y: 1000, z: 0},
-  materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'snow'],
+  startingPosition: {x: 0, y: 10, z: 0},
+  materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'whitewool'],
   controlsDisabled: true,
   controls: { discreteFire: true },
+  texturePath: "http://commondatastorage.googleapis.com/voxeltextures/",
   generate: function flatWorld(x, y, z) {
-  	if (y === 0) return 1
+    if (y === 0) return 1
     return 0
   }
 }
@@ -39,7 +40,7 @@ function broadcast(id, cmd, arg1, arg2, arg3) {
 function sendUpdate() {
   var clientKeys = Object.keys(clients)
   if (clientKeys.length === 0) return
-  var update = {positions:{}}
+  var update = {positions:{}, date: +new Date()}
   clientKeys.map(function(key) {
     var emitter = clients[key]
     update.positions[key] = {
@@ -134,6 +135,7 @@ function sendInitialChunks(emitter) {
       length: chunk.voxels.length
     })
   })
+  emitter.emit('noMoreChunks', true)
 }
 
 var port = process.argv[2] || 8080
