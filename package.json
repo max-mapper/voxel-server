@@ -5,19 +5,20 @@
   "dependencies": {
     "minecraft-skin": "0.0.3",
     "voxel-walk": "0.0.1",
-    "voxel-highlight": "0.0.1",
+    "voxel-highlight": "0.0.8",
     "toolbar": "0.0.5",
     "voxel-player": "0.0.2",
-    "voxel-engine": "0.5.8",
-    "voxel-crunch": "git://github.com/mikolalysenko/voxel-crunch.git",
+    "voxel-engine": "~0.16.0",
+    "voxel-crunch": "0.1.1",
     "websocket-stream": "0.0.5",
     "ws": "0.4.25",
     "ecstatic": "0.3.0",
     "hat": "0.0.3",
-    "duplex-emitter": "0.1.6"
+    "duplex-emitter": "0.1.6",
+	"painterly-textures": "0.0.3"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node demo.js"
   },
   "engines": {
     "node": "0.8.x"
