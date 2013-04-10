@@ -2,7 +2,23 @@
 
 multiplayer server for [voxel-engine](http://github.com/maxogden/voxel-engine)
 
+Use with [voxel-client](https://github.com/maxogden/voxel-client)
+
 **not done: work in progress**
+
+## Get it running on your machine
+
+```
+npm install
+```
+
+Run the start script:
+
+```
+npm start
+```
+
+This gets the server running on port 8080.
 
 ## explanation
 
