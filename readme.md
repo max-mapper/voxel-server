@@ -4,7 +4,9 @@ multiplayer server for [voxel-engine](http://github.com/maxogden/voxel-engine)
 
 Use with [voxel-client](https://github.com/maxogden/voxel-client)
 
-**not done: work in progress**
+If the client sends an object with a settings property, it will use those settings when creating its game instance and will send those instances to other clients that connect.
+
+If the client settings have the property "resetSettings", the server will switch to those. It deletes any game instance and clears the chunkCache.
 
 ## Get it running on your machine
 
