@@ -8,6 +8,7 @@ var uuid = require('hat')
 var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
 var texturePath = require('painterly-textures')(__dirname)
+var voxel = require('voxel')
 
 module.exports = function() {
   
@@ -15,22 +16,26 @@ module.exports = function() {
   // world on the server and will be sent to all
   // new clients when they connect
   var settings = {
-    startingPosition: {x: 0, y: 10, z: 0},
-    materials: [['grass', 'dirt', 'grass_dirt'], 'brick', 'dirt', 'obsidian', 'whitewool'],
-    controlsDisabled: true,
-    controls: { discreteFire: true },
-    texturePath: texturePath,
-    generate: function flatWorld(x, y, z) {
-      if (y === 0) return 1
-      return 0
-    }
+  	generate: voxel.generator['Valley'],
+  	chunkDistance: 2,
+  	materials: [
+  	['grass', 'dirt', 'grass_dirt'],
+  	'obsidian',
+  	'brick',
+  	'grass'
+  	],
+  	texturePath: texturePath,
+  	worldOrigin: [0, 0, 0],
+  	controls: { discreteFire: true },
+	avatarInitialPosition: [2, 20, 2]
   }
-
+  
   var game = engine(settings)
   var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
   var wss = new WebSocketServer({server: server})
   var clients = {}
   var chunkCache = {}
+  var usingClientSettings
 
   // simple version of socket.io's sockets.emit
   function broadcast(id, cmd, arg1, arg2, arg3) {
@@ -64,6 +69,38 @@ module.exports = function() {
     var stream = websocket(ws)
 
     var emitter = duplexEmitter(stream)
+	
+    emitter.on('clientSettings', function(clientSettings) {
+		// Enables a client to reset the settings to enable loading new clientSettings
+		if (clientSettings != null) {
+			if (clientSettings.resetSettings != null) {
+				console.log("resetSettings:true")
+				usingClientSettings = null
+				if (game != null) game.destroy()
+				game = null
+				chunkCache = {}
+			}
+		}
+		
+	  if (clientSettings != null && usingClientSettings == null) {
+		  usingClientSettings = true
+		  // Use the correct path for textures url
+	      clientSettings.texturePath = texturePath
+		  //deserialise the voxel.generator function.
+		  if (clientSettings.generatorToString != null) {
+			  clientSettings.generate = eval("(" + clientSettings.generatorToString + ")")
+		  }
+		  settings = clientSettings
+	      console.log("Using settings from client to create game.")
+		  game = engine(settings)
+	  } else {
+		  if (usingClientSettings != null) {
+		  	console.log("Sending current settings to new client.")
+		  } else {
+		  	console.log("Sending default settings to new client.")
+		  }
+	  }
+    })
 
     var id = uuid()
     clients[id] = emitter
@@ -93,6 +130,9 @@ module.exports = function() {
     })
 
     // give the user the initial game settings
+	if (settings.generate != null) {
+	  	settings.generatorToString = settings.generate.toString()
+	}
     emitter.emit('settings', settings)
 
     // fires when the user tells us they are
