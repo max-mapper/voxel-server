@@ -22,6 +22,11 @@ npm start
 
 This gets the server running on port 8080.
 
+This version now runs express with the basicAuth middleware and uses browserify_express to browserify the js bundle.
+basicAuth is configured to let any username/password combination pass.
+
+You may view a voxel-client demo at http://127.0.0.1:8080
+
 ## explanation
 
 background research:

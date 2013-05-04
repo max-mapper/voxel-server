@@ -1,0 +1,77 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <title>Voxels</title>
+    <meta charset="utf-8">
+    <style type="text/css">
+      body {
+        font-family: Monospace;
+        font-size: 12px;
+        background-color: #f0f0f0;
+        margin: 0px;
+        overflow: hidden;
+      }
+      #container {
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #crosshair {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        margin: -2px 0 0 -2px;
+        width: 4px;
+        height: 4px;
+        background-color: #d00;
+        opacity: 0.5;
+      }
+      #stats { bottom: 0px; right: 0px; }
+      .logo {position: absolute; top: 5px; left: 5px; }
+      .bar-tab { right: 33% !important; left: 33% !important; }
+      .errorMessage { text-align: center; width: 200px; margin: 20px auto; }
+      #chat { padding: 10px; height: 200px; width: 25%; position: absolute; bottom: 50px; left: 0; }
+      #chat #messages { max-height: 153px; overflow: auto; }
+      #cmdbox { position: absolute; bottom: 0; }
+      #chat input { box-shadow: none; padding: 0px 10px; margin: 0; background: none; border: none; border-radius: 0; }
+      input, input:focus { outline: none }
+    </style>
+    <link href="ratchet.css" media="screen" rel="stylesheet" type="text/css" />
+  </head>
+  <body>
+    <img class="logo" src="logo-white.png">
+    <div id="container"></div>
+    <div id="crosshair"></div>
+    <div id="chat">
+      <ul id="messages"></ul>
+      <div id="cmdbox">
+        <input type="text" id="cmd" placeholder="Press <enter> to chat" /><br/>
+      </div>
+    </div>
+    <nav class="bar-tab" id="tools" >
+      <ul class="tab-inner">
+        <li class="tab-item active">
+          <img class="tab-icon" src="/textures/grass.png">
+          <div class="tab-label" data-id="1">grass</div>
+        </li>
+        <li class="tab-item">
+          <img class="tab-icon" src="/textures/brick.png">
+          <div class="tab-label" data-id="2">brick</div>
+        </li>
+        <li class="tab-item">
+          <img class="tab-icon" src="/textures/dirt.png">
+          <div class="tab-label" data-id="3">dirt</div>
+        </li>
+        <li class="tab-item">
+          <img class="tab-icon" src="/textures/obsidian.png">
+          <div class="tab-label" data-id="4">obsidian</div>
+        </li>
+        <li class="tab-item">
+          <img class="tab-icon" src="/textures/snow.png">
+          <div class="tab-label" data-id="5">snow</div>
+        </li>
+      </ul>
+    </nav>
+    <script type="text/javascript" src="js/share-bundle.js"></script>
+  </body>
+</html>

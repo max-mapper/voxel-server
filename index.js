@@ -1,5 +1,4 @@
 var http = require('http')
-var ecstatic = require('ecstatic')
 var WebSocketServer = require('ws').Server
 var websocket = require('websocket-stream')
 var duplexEmitter = require('duplex-emitter')
@@ -9,6 +8,8 @@ var crunch = require('voxel-crunch')
 var engine = require('voxel-engine')
 var texturePath = require('painterly-textures')(__dirname)
 var voxel = require('voxel')
+var express = require('express')
+var browserify_express = require('browserify-express')
 
 module.exports = function() {
   
@@ -29,10 +30,37 @@ module.exports = function() {
   	controls: { discreteFire: true },
 	avatarInitialPosition: [2, 20, 2]
   }
-  
+
   var game = engine(settings)
-  var server = http.createServer(ecstatic(path.join(__dirname, 'www')))
-  var wss = new WebSocketServer({server: server})
+  var app = express();
+  // Authenticator
+  app.use(express.basicAuth(function(user, pass) {
+    return true;
+  }));
+  app.use(express.static(__dirname + '/www'));
+  app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
+
+  app.get('/home', function(req, res) {
+    res.send('Hello World');
+  });
+
+  var bundle = browserify_express({
+    entry: __dirname + '/www/js/demo.js',
+    watch: __dirname + '/www/js/',
+    mount: '/js/bundle.js',
+    verbose: true,
+    minify: false,
+    bundle_opts: { debug: true }, // enable inline sourcemap on js files
+    watch_opts: { recursive: false} // disable recursive file watch
+  });
+
+  app.use(bundle);
+
+  var server = http.createServer(app);
+  server.listen(8080);
+  var wss = new WebSocketServer({server: server});
+  console.log("Web server has started.\nPlease log on http://127.0.0.1:8080/index.html");
+
   var clients = {}
   var chunkCache = {}
   var usingClientSettings
