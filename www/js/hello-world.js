@@ -20,7 +20,8 @@ module.exports = function(opts, setup) {
 
     // create the player from a minecraft skin file and tell the
     // game to use it as the main player
-    var avatar = createPlayer('player.png')
+    var playerSettings = {playerName :game.settings.username, gravitar :game.settings.gravitar}
+    var avatar = createPlayer('player.png', playerSettings)
     window.avatar = avatar
     avatar.possess()
     var settings = game.settings.avatarInitialPosition
