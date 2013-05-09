@@ -24,6 +24,7 @@ module.exports = function(opts, setup) {
     window.avatar = avatar
     avatar.possess()
     var settings = game.settings.avatarInitialPosition
+    console.log("Username: " + game.settings.username)
     avatar.position.set(settings[0],settings[1],settings[2])
     setup(game, avatar, client)
   })

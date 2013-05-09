@@ -10,39 +10,138 @@ var texturePath = require('painterly-textures')(__dirname)
 var voxel = require('voxel')
 var express = require('express')
 var browserify_express = require('browserify-express')
+var cookie = require('cookie')
+var everyauth = require('everyauth')
 
 module.exports = function() {
-  
+
   // these settings will be used to create an in-memory
   // world on the server and will be sent to all
   // new clients when they connect
   var settings = {
-  	generate: voxel.generator['Valley'],
-  	chunkDistance: 2,
-  	materials: [
-  	['grass', 'dirt', 'grass_dirt'],
-  	'obsidian',
-  	'brick',
-  	'grass'
-  	],
-  	texturePath: texturePath,
-  	worldOrigin: [0, 0, 0],
-  	controls: { discreteFire: true },
-	avatarInitialPosition: [2, 20, 2]
+    generate: voxel.generator['Valley'],
+    chunkDistance: 2,
+    materials: [
+      ['grass', 'dirt', 'grass_dirt'],
+      'obsidian',
+      'brick',
+      'grass'
+    ],
+    texturePath: texturePath,
+    worldOrigin: [0, 0, 0],
+    controls: { discreteFire: true },
+    avatarInitialPosition: [2, 20, 2]  ,
+    username: "Dude",
+    gravitar: "elsewhere"
   }
 
   var game = engine(settings)
-  var app = express();
-  // Authenticator
-  app.use(express.basicAuth(function(user, pass) {
-    return true;
-  }));
-  app.use(express.static(__dirname + '/www'));
-  app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
 
-  app.get('/home', function(req, res) {
-    res.send('Hello World');
-  });
+  var everyauthRoot = __dirname + '/www';
+  everyauth.debug = true;
+
+  var cookieParser = express.cookieParser('secret');
+
+  var usersById = {};
+  var nextUserId = 0;
+
+  var username;
+  var gravitar;
+
+//    // kudos: http://stackoverflow.com/questions/8754849/socket-io-authentication-after-socket-established
+//    app.use(express.cookieParser());
+//    app.use(express.session({
+//      secret: 'secret_pw',
+//      store: sessionStore,
+//      cookie: {
+//        secure: true,
+//        expires: new Date(Date.now() + 60 * 1000), //setting cookie to not expire on session end
+//        maxAge: 60 * 1000,
+//        key: 'express.sid'
+//      }
+//    }));
+
+  everyauth.everymodule
+      .findUserById( function (id, callback) {
+        callback(null, usersById[id]);
+      });
+
+  everyauth
+      .password
+      .loginWith('email')
+      .getLoginPath('/login')
+      .postLoginPath('/login')
+      .loginView('../www/views/login.jade')
+      .loginLocals( function (req, res, done) {
+        setTimeout( function () {
+          done(null, {
+            title: 'Async login'
+          });
+        }, 200);
+      })
+      .authenticate( function (login, password) {
+        var errors = [];
+        if (!login) errors.push('Missing login');
+        if (!password) errors.push('Missing password');
+        if (errors.length) return errors;
+        var user = usersByLogin[login];
+        if (!user) return ['Login failed'];
+        if (user.password !== password) return ['Login failed'];
+        return user;
+      })
+
+      .getRegisterPath('/register')
+      .postRegisterPath('/register')
+      .registerView('../www/views/register.jade')
+      .registerLocals( function (req, res, done) {
+        setTimeout( function () {
+          done(null, {
+            title: 'Async Register'
+          });
+        }, 200);
+      })
+      .extractExtraRegistrationParams( function (req) {
+        return {
+          'username': req.body.username
+          , 'gravitar': req.body.gravitar
+        };
+      })
+      .validateRegistration( function (newUserAttrs, errors) {
+        var login = newUserAttrs.login;
+        if (usersByLogin[login]) errors.push('Login already taken');
+        return errors;
+      })
+      .registerUser( function (newUserAttrs) {
+        var login = newUserAttrs[this.loginKey()];
+        return usersByLogin[login] = addUser(newUserAttrs);
+      })
+      .respondToRegistrationSucceed( function (res, user) {
+        res.cookie('wsAuth', 'true');
+        res.cookie('expressSessionID', res.req.sessionID);
+        res.cookie('username', user.username);
+        res.cookie('gravitar', user.gravitar);
+        this.redirect(res, this.registerSuccessRedirect());
+      })
+
+      .loginSuccessRedirect('/')
+      .registerSuccessRedirect('/');
+
+
+//  app.get('/', function (req, res) {
+//    res.render('home');
+//  });
+
+//    // kudos: http://stackoverflow.com/questions/8754849/socket-io-authentication-after-socket-established
+//    app.use(express.session({
+//      secret: 'secret_pw',
+//      store: sessionStore,
+//      cookie: {
+//        secure: true,
+//        expires: new Date(Date.now() + 60 * 1000), //setting cookie to not expire on session end
+//        maxAge: 60 * 1000,
+//        key: 'express.sid'
+//      }
+//    }));
 
   var bundle = browserify_express({
     entry: __dirname + '/www/js/demo.js',
@@ -54,16 +153,107 @@ module.exports = function() {
     watch_opts: { recursive: false} // disable recursive file watch
   });
 
-  app.use(bundle);
+  var app = express();
+  var sessionStore  = new express.session.MemoryStore;
+  app.configure(function(){
+    app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
+    //app.set('port', process.env.PORT || 3000);
+    app.set('views', __dirname + '/www/views');
+    app.set('view engine', 'jade');
+    //app.use(express.favicon());
+    app.use(express.logger('dev'));
+    app.use(express.bodyParser());
+    app.use(cookieParser);
+    app.use(express.session({ secret: 'secret', store: sessionStore, key: 'sid'}));
+    app.use(everyauth.middleware(app));
+    app.use(express.methodOverride());
+    app.use(bundle);
+    app.use(app.router);
+    app.use(express.static(path.join(__dirname, 'www')));
+  });
+
+  app.all('*',function(req,res,next){
+    console.log("express sessionID: " + req.sessionID + " path: " + req.path + " req.loggedIn: " + req.loggedIn)
+    if(req.loggedIn){
+      next();
+    }else{
+      if (req.path.substring(0,9) == "/textures")  {
+        next();
+      } else if (req.path.substring(0,11) == "/player.png")  {
+        next();
+      }  else {
+        return res.redirect("/login");
+      }
+    }
+  });
+
+  var sessionobj = {}; //This is important; it will contain your connect.sid IDs.
+
+  //everyauth.helpExpress(app);
+
+//io.set('authorization'...etc. here to authorize socket connection and ensure legitimacy
+
+//  app.get("/*", function(req, res, next){
+//    if(sessionobj[req.cookies['connect.sid']]){
+//      if(sessionobj[req.cookies['connect.sid']].login = true) {
+//        //Authenticated AND Logged in
+//      }
+//      else{
+//        //authenticated but not logged in
+//      }
+//    }
+//    else{
+//      //not authenticated
+//    }
+//
+//  });
 
   var server = http.createServer(app);
   server.listen(8080);
-  var wss = new WebSocketServer({server: server});
+
+  // Function to authenticate if web socket access
+  // should be granted
+  function wsAuth(result) {
+    var thisSessionId
+    var parseCookie = express.cookieParser();
+    parseCookie(result.req, null, function(err) {
+      thisSessionId = result.req.cookies['expressSessionID'];
+      var sid = result.req.cookies['sid'];
+      var wsAuth = result.req.cookies['wsAuth'];
+      // TODO: check if wsAuth = true.
+      username = result.req.cookies['username'];
+      gravitar = result.req.cookies['gravitar'];
+      settings.username =  username
+      settings.gravitar =  gravitar
+      console.log("expressSessionID: " + thisSessionId + " username" + username);
+      console.log("sid: " + sid + " wsAuth: " + wsAuth);
+      result.req.sessionID =  sid;
+      sessionStore.get(thisSessionId, function(err, session) {
+        // session
+        console.log("session: " + session);
+        if (err || !session) {
+          console.log("Session error")
+        } else {
+          result.req.session = session;
+          console.log("result.req.session:" + JSON.stringify(result.req.session));
+        }
+      });
+    });
+
+    if (result.origin == "http://localhost:8080")   {
+        return true;
+      } else {
+        return false;
+      }
+  }
+
+  var wss = new WebSocketServer({server: server, verifyClient: wsAuth});
   console.log("Web server has started.\nPlease log on http://127.0.0.1:8080/index.html");
 
   var clients = {}
   var chunkCache = {}
   var usingClientSettings
+
 
   // simple version of socket.io's sockets.emit
   function broadcast(id, cmd, arg1, arg2, arg3) {
@@ -93,41 +283,57 @@ module.exports = function() {
   setInterval(sendUpdate, 1000/22) // 45ms
 
   wss.on('connection', function(ws) {
+
+    var sessionID;
+
+//    sessionobj[cookie.parse(socket.handshake.headers.cookie) + 'connect.sid'].login = false;
+//    sessionobj[cookie.parse(socket.handshake.headers.cookie) + 'connect.sid'].socketid = ws.id;
+
+    // stats.html demo
+//    var id = setInterval(function() {
+//      ws.send(JSON.stringify(process.memoryUsage()), function() { /* ignore errors */ });
+//    }, 100);
+//    console.log('started client interval');
+//    ws.on('close', function() {
+//      console.log('stopping client interval');
+//      clearInterval(id);
+//    })
+
     // turn 'raw' websocket into a stream
     var stream = websocket(ws)
 
     var emitter = duplexEmitter(stream)
-	
+
     emitter.on('clientSettings', function(clientSettings) {
-		// Enables a client to reset the settings to enable loading new clientSettings
-		if (clientSettings != null) {
-			if (clientSettings.resetSettings != null) {
-				console.log("resetSettings:true")
-				usingClientSettings = null
-				if (game != null) game.destroy()
-				game = null
-				chunkCache = {}
-			}
-		}
-		
-	  if (clientSettings != null && usingClientSettings == null) {
-		  usingClientSettings = true
-		  // Use the correct path for textures url
-	      clientSettings.texturePath = texturePath
-		  //deserialise the voxel.generator function.
-		  if (clientSettings.generatorToString != null) {
-			  clientSettings.generate = eval("(" + clientSettings.generatorToString + ")")
-		  }
-		  settings = clientSettings
-	      console.log("Using settings from client to create game.")
-		  game = engine(settings)
-	  } else {
-		  if (usingClientSettings != null) {
-		  	console.log("Sending current settings to new client.")
-		  } else {
-		  	console.log("Sending default settings to new client.")
-		  }
-	  }
+      // Enables a client to reset the settings to enable loading new clientSettings
+      if (clientSettings != null) {
+        if (clientSettings.resetSettings != null) {
+          console.log("resetSettings:true")
+          usingClientSettings = null
+          if (game != null) game.destroy()
+          game = null
+          chunkCache = {}
+        }
+      }
+
+      if (clientSettings != null && usingClientSettings == null) {
+        usingClientSettings = true
+        // Use the correct path for textures url
+        clientSettings.texturePath = texturePath
+        //deserialise the voxel.generator function.
+        if (clientSettings.generatorToString != null) {
+          clientSettings.generate = eval("(" + clientSettings.generatorToString + ")")
+        }
+        settings = clientSettings
+        console.log("Using settings from client to create game.")
+        game = engine(settings)
+      } else {
+        if (usingClientSettings != null) {
+          console.log("Sending current settings to new client.")
+        } else {
+          console.log("Sending default settings to new client.")
+        }
+      }
     })
 
     var id = uuid()
@@ -137,6 +343,12 @@ module.exports = function() {
       rotation: new game.THREE.Vector3(),
       position: new game.THREE.Vector3()
     }
+
+    app.use(function(req, res, next){
+      res.locals.user = req.user;
+      console.log(" req.user: " + req.user + " id: " + id)
+      next();
+    });
 
     console.log(id, 'joined')
     emitter.emit('id', id)
@@ -208,6 +420,23 @@ module.exports = function() {
     })
     emitter.emit('noMoreChunks', true)
   }
-  
-  return server
+
+  function addUser (source, sourceUser, cb) {
+    var user;
+    if (arguments.length === 1) { // password-based
+      user = sourceUser = source;
+      user.id = ++nextUserId;
+      return usersById[nextUserId] = user;
+    } else { // non-password-based
+      user = usersById[++nextUserId] = {id: nextUserId};
+      user[source] = sourceUser;
+    }
+    return user;
+  }
+
+  var usersByLogin = {
+    'brian@example.com': addUser({ login: 'brian@example.com', password: 'password'})
+  };
+
+  return app
 }
