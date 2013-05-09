@@ -10,7 +10,6 @@ var texturePath = require('painterly-textures')(__dirname)
 var voxel = require('voxel')
 var express = require('express')
 var browserify_express = require('browserify-express')
-var cookie = require('cookie')
 var everyauth = require('everyauth')
 
 module.exports = function() {
@@ -37,34 +36,17 @@ module.exports = function() {
 
   var game = engine(settings)
 
-  var everyauthRoot = __dirname + '/www';
-  everyauth.debug = true;
-
-  var cookieParser = express.cookieParser('secret');
-
-  var usersById = {};
-  var nextUserId = 0;
-
-  var username;
-  var gravitar;
-
-//    // kudos: http://stackoverflow.com/questions/8754849/socket-io-authentication-after-socket-established
-//    app.use(express.cookieParser());
-//    app.use(express.session({
-//      secret: 'secret_pw',
-//      store: sessionStore,
-//      cookie: {
-//        secure: true,
-//        expires: new Date(Date.now() + 60 * 1000), //setting cookie to not expire on session end
-//        maxAge: 60 * 1000,
-//        key: 'express.sid'
-//      }
-//    }));
+  everyauth.debug = true
+  var cookieParser = express.cookieParser('secret')
+  var usersById = {}
+  var nextUserId = 0
+  var username
+  var gravitar
 
   everyauth.everymodule
       .findUserById( function (id, callback) {
-        callback(null, usersById[id]);
-      });
+        callback(null, usersById[id])
+      })
 
   everyauth
       .password
@@ -76,20 +58,19 @@ module.exports = function() {
         setTimeout( function () {
           done(null, {
             title: 'Async login'
-          });
-        }, 200);
+          })
+        }, 200)
       })
       .authenticate( function (login, password) {
-        var errors = [];
-        if (!login) errors.push('Missing login');
-        if (!password) errors.push('Missing password');
-        if (errors.length) return errors;
-        var user = usersByLogin[login];
-        if (!user) return ['Login failed'];
-        if (user.password !== password) return ['Login failed'];
-        return user;
+        var errors = []
+        if (!login) errors.push('Missing login')
+        if (!password) errors.push('Missing password')
+        if (errors.length) return errors
+        var user = usersByLogin[login]
+        if (!user) return ['Login failed']
+        if (user.password !== password) return ['Login failed']
+        return user
       })
-
       .getRegisterPath('/register')
       .postRegisterPath('/register')
       .registerView('../www/views/register.jade')
@@ -97,51 +78,51 @@ module.exports = function() {
         setTimeout( function () {
           done(null, {
             title: 'Async Register'
-          });
-        }, 200);
+          })
+        }, 200)
       })
       .extractExtraRegistrationParams( function (req) {
         return {
           'username': req.body.username
           , 'gravitar': req.body.gravitar
-        };
+        }
       })
       .validateRegistration( function (newUserAttrs, errors) {
-        var login = newUserAttrs.login;
-        if (usersByLogin[login]) errors.push('Login already taken');
-        return errors;
+        var login = newUserAttrs.login
+        if (usersByLogin[login]) errors.push('Login already taken')
+        return errors
       })
       .registerUser( function (newUserAttrs) {
-        var login = newUserAttrs[this.loginKey()];
-        return usersByLogin[login] = addUser(newUserAttrs);
+        var login = newUserAttrs[this.loginKey()]
+        return usersByLogin[login] = addUser(newUserAttrs)
       })
       .respondToRegistrationSucceed( function (res, user) {
-        res.cookie('wsAuth', 'true');
-        res.cookie('expressSessionID', res.req.sessionID);
-        res.cookie('username', user.username);
-        res.cookie('gravitar', user.gravitar);
-        this.redirect(res, this.registerSuccessRedirect());
+        res.cookie('wsAuth', 'true')
+        res.cookie('expressSessionID', res.req.sessionID)
+        res.cookie('username', user.username)
+        res.cookie('gravitar', user.gravitar)
+        this.redirect(res, this.registerSuccessRedirect())
       })
 
       .loginSuccessRedirect('/')
-      .registerSuccessRedirect('/');
+      .registerSuccessRedirect('/')
 
+  function addUser (source, sourceUser, cb) {
+    var user
+    if (arguments.length === 1) { // password-based
+      user = sourceUser = source
+      user.id = ++nextUserId
+      return usersById[nextUserId] = user
+    } else { // non-password-based
+      user = usersById[++nextUserId] = {id: nextUserId}
+      user[source] = sourceUser
+    }
+    return user
+  }
 
-//  app.get('/', function (req, res) {
-//    res.render('home');
-//  });
-
-//    // kudos: http://stackoverflow.com/questions/8754849/socket-io-authentication-after-socket-established
-//    app.use(express.session({
-//      secret: 'secret_pw',
-//      store: sessionStore,
-//      cookie: {
-//        secure: true,
-//        expires: new Date(Date.now() + 60 * 1000), //setting cookie to not expire on session end
-//        maxAge: 60 * 1000,
-//        key: 'express.sid'
-//      }
-//    }));
+  var usersByLogin = {
+    'brian@example.com': addUser({ login: 'brian@example.com', password: 'password'})
+  }
 
   var bundle = browserify_express({
     entry: __dirname + '/www/js/demo.js',
@@ -151,104 +132,88 @@ module.exports = function() {
     minify: false,
     bundle_opts: { debug: true }, // enable inline sourcemap on js files
     watch_opts: { recursive: false} // disable recursive file watch
-  });
+  })
 
-  var app = express();
-  var sessionStore  = new express.session.MemoryStore;
+  var app = express()
+  var sessionStore  = new express.session.MemoryStore
   app.configure(function(){
-    app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
-    //app.set('port', process.env.PORT || 3000);
-    app.set('views', __dirname + '/www/views');
-    app.set('view engine', 'jade');
-    //app.use(express.favicon());
-    app.use(express.logger('dev'));
-    app.use(express.bodyParser());
-    app.use(cookieParser);
-    app.use(express.session({ secret: 'secret', store: sessionStore, key: 'sid'}));
-    app.use(everyauth.middleware(app));
-    app.use(express.methodOverride());
-    app.use(bundle);
-    app.use(app.router);
-    app.use(express.static(path.join(__dirname, 'www')));
-  });
+    app.use(express.errorHandler({ dumpExceptions: true, showStack: true }))
+    //app.set('port', process.env.PORT || 3000)
+    app.set('views', __dirname + '/www/views')
+    app.set('view engine', 'jade')
+    //app.use(express.favicon())
+    app.use(express.logger('dev'))
+    app.use(express.bodyParser())
+    app.use(cookieParser)
+    app.use(express.session({ secret: 'secret', store: sessionStore, key: 'sid'}))
+    app.use(everyauth.middleware(app))
+    app.use(express.methodOverride())
+    app.use(bundle)
+    app.use(app.router)
+    app.use(express.static(path.join(__dirname, 'www')))
+  })
 
+  // TODO: May not need to lock down the whole app.
   app.all('*',function(req,res,next){
+    // Kudos: http://stackoverflow.com/questions/7067966/how-to-allow-cors-in-express-nodejs
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "X-Requested-With");
     console.log("express sessionID: " + req.sessionID + " path: " + req.path + " req.loggedIn: " + req.loggedIn)
     if(req.loggedIn){
-      next();
-    }else{
+      next()
+    } else {
+      //TODO: Figure out why ajax requests from the client are not sending request cookies and therefore are authenticated.
+      // Is this a CORS issue? https://developer.mozilla.org/en-US/docs/HTML/CORS_Enabled_Image
       if (req.path.substring(0,9) == "/textures")  {
-        next();
+        next()
       } else if (req.path.substring(0,11) == "/player.png")  {
-        next();
+        next()
       }  else {
-        return res.redirect("/login");
+        return res.redirect("/login")
       }
     }
-  });
+  })
 
-  var sessionobj = {}; //This is important; it will contain your connect.sid IDs.
-
-  //everyauth.helpExpress(app);
-
-//io.set('authorization'...etc. here to authorize socket connection and ensure legitimacy
-
-//  app.get("/*", function(req, res, next){
-//    if(sessionobj[req.cookies['connect.sid']]){
-//      if(sessionobj[req.cookies['connect.sid']].login = true) {
-//        //Authenticated AND Logged in
-//      }
-//      else{
-//        //authenticated but not logged in
-//      }
-//    }
-//    else{
-//      //not authenticated
-//    }
-//
-//  });
-
-  var server = http.createServer(app);
-  server.listen(8080);
+  var server = http.createServer(app)
+  server.listen(8080)
 
   // Function to authenticate if web socket access
   // should be granted
   function wsAuth(result) {
     var thisSessionId
-    var parseCookie = express.cookieParser();
+    var parseCookie = express.cookieParser()
     parseCookie(result.req, null, function(err) {
-      thisSessionId = result.req.cookies['expressSessionID'];
-      var sid = result.req.cookies['sid'];
-      var wsAuth = result.req.cookies['wsAuth'];
+      thisSessionId = result.req.cookies['expressSessionID']
+      var sid = result.req.cookies['sid']
+      var wsAuth = result.req.cookies['wsAuth']
       // TODO: check if wsAuth = true.
-      username = result.req.cookies['username'];
-      gravitar = result.req.cookies['gravitar'];
+      username = result.req.cookies['username']
+      gravitar = result.req.cookies['gravitar']
       settings.username =  username
       settings.gravitar =  gravitar
-      console.log("expressSessionID: " + thisSessionId + " username" + username);
-      console.log("sid: " + sid + " wsAuth: " + wsAuth);
-      result.req.sessionID =  sid;
+      console.log("expressSessionID: " + thisSessionId + " username" + username)
+      console.log("sid: " + sid + " wsAuth: " + wsAuth)
+      result.req.sessionID =  sid
       sessionStore.get(thisSessionId, function(err, session) {
         // session
-        console.log("session: " + session);
+        console.log("session: " + session)
         if (err || !session) {
           console.log("Session error")
         } else {
-          result.req.session = session;
-          console.log("result.req.session:" + JSON.stringify(result.req.session));
+          result.req.session = session
         }
-      });
-    });
+      })
+    })
 
     if (result.origin == "http://localhost:8080")   {
-        return true;
+        return true
       } else {
-        return false;
+        return false
       }
   }
 
-  var wss = new WebSocketServer({server: server, verifyClient: wsAuth});
-  console.log("Web server has started.\nPlease log on http://127.0.0.1:8080/index.html");
+  var wss = new WebSocketServer({server: server, verifyClient: wsAuth})
+  console.log("Web server has started.\nPlease log on http://127.0.0.1:8080/index.html")
 
   var clients = {}
   var chunkCache = {}
@@ -283,22 +248,6 @@ module.exports = function() {
   setInterval(sendUpdate, 1000/22) // 45ms
 
   wss.on('connection', function(ws) {
-
-    var sessionID;
-
-//    sessionobj[cookie.parse(socket.handshake.headers.cookie) + 'connect.sid'].login = false;
-//    sessionobj[cookie.parse(socket.handshake.headers.cookie) + 'connect.sid'].socketid = ws.id;
-
-    // stats.html demo
-//    var id = setInterval(function() {
-//      ws.send(JSON.stringify(process.memoryUsage()), function() { /* ignore errors */ });
-//    }, 100);
-//    console.log('started client interval');
-//    ws.on('close', function() {
-//      console.log('stopping client interval');
-//      clearInterval(id);
-//    })
-
     // turn 'raw' websocket into a stream
     var stream = websocket(ws)
 
@@ -345,10 +294,10 @@ module.exports = function() {
     }
 
     app.use(function(req, res, next){
-      res.locals.user = req.user;
+      res.locals.user = req.user
       console.log(" req.user: " + req.user + " id: " + id)
-      next();
-    });
+      next()
+    })
 
     console.log(id, 'joined')
     emitter.emit('id', id)
@@ -420,23 +369,6 @@ module.exports = function() {
     })
     emitter.emit('noMoreChunks', true)
   }
-
-  function addUser (source, sourceUser, cb) {
-    var user;
-    if (arguments.length === 1) { // password-based
-      user = sourceUser = source;
-      user.id = ++nextUserId;
-      return usersById[nextUserId] = user;
-    } else { // non-password-based
-      user = usersById[++nextUserId] = {id: nextUserId};
-      user[source] = sourceUser;
-    }
-    return user;
-  }
-
-  var usersByLogin = {
-    'brian@example.com': addUser({ login: 'brian@example.com', password: 'password'})
-  };
 
   return app
 }
